@@ -60,6 +60,43 @@ interface BookDao {
     @Update
     suspend fun updateAnchor(anchor: AnchorEntity)
 
+    // --- то же без suspend: синхронизация работает в фоновом потоке ---
+    @Query("SELECT * FROM books")
+    fun allForSyncBlocking(): List<BookEntity>
+
+    @Query("SELECT * FROM books WHERE id = :id")
+    fun getBlocking(id: Long): BookEntity?
+
+    @Insert
+    fun insertBlocking(book: BookEntity): Long
+
+    @Update
+    fun updateBlocking(book: BookEntity)
+
+    @Query("SELECT * FROM bookmarks WHERE bookId = :bookId")
+    fun allBookmarksBlocking(bookId: Long): List<BookmarkEntity>
+
+    @Query("SELECT * FROM anchors WHERE bookId = :bookId")
+    fun allAnchorsBlocking(bookId: Long): List<AnchorEntity>
+
+    @Insert
+    fun insertBookmarkBlocking(bookmark: BookmarkEntity): Long
+
+    @Update
+    fun updateBookmarkBlocking(bookmark: BookmarkEntity)
+
+    @Insert
+    fun insertAnchorBlocking(anchor: AnchorEntity): Long
+
+    @Update
+    fun updateAnchorBlocking(anchor: AnchorEntity)
+
+    @Query("SELECT * FROM tracks WHERE bookId = :bookId ORDER BY idx")
+    fun tracksBlocking(bookId: Long): List<TrackEntity>
+
+    @Query("DELETE FROM tracks WHERE bookId = :bookId")
+    fun deleteTracksBlocking(bookId: Long)
+
     /** Сигнал «в библиотеке что-то поменялось» — для автосинхронизации. */
     @Query("SELECT (SELECT COUNT(*) FROM books) + (SELECT COUNT(*) FROM bookmarks) + (SELECT COUNT(*) FROM anchors)")
     fun changes(): Flow<Int>

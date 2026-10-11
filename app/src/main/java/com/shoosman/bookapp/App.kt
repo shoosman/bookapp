@@ -23,6 +23,8 @@ class App : Application() {
         private set
     lateinit var updater: Updater
         private set
+    lateinit var sync: com.shoosman.bookapp.sync.LibrarySync
+        private set
 
     /** Ссылка, которой поделились с Чтецом из браузера или другого приложения. */
     val sharedText = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -39,6 +41,8 @@ class App : Application() {
         settings = SettingsStore(this)
         player = PlayerConnection(this, repo)
         updater = Updater(this)
+        sync = com.shoosman.bookapp.sync.LibrarySync(this, repo)
+        sync.startAutoSync()
         CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
             settings.flow.collect { player.setSkip(it.skipBackSec, it.skipForwardSec) }
         }

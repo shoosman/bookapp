@@ -587,8 +587,25 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         return fromProvider ?: uri.lastPathSegment?.substringAfterLast('/') ?: "book"
     }
 
-    private fun newBookDir(): File = File(booksDir, UUID.randomUUID().toString()).apply { mkdirs() }
-    private fun coverFile(dir: File) = File(dir, "cover.img")
+    fun newBookDir(): File = File(booksDir, UUID.randomUUID().toString()).apply { mkdirs() }
+    fun coverFile(dir: File) = File(dir, "cover.img")
+
+    /** Текст книги поменялся снаружи (синхронизация) — сбросить кэш. */
+    fun invalidateContent() {
+        cached = null
+    }
+
+    /** Разобрать уже лежащий в папке книги файл source и сохранить content.bin. */
+    fun parseSource(dir: File, name: String): ParsedBook {
+        val parsed = BookParser.parse(File(dir, "source"), name)
+        if (parsed.content.paragraphs.isEmpty()) error("В файле не найден текст")
+        parsed.content.write(File(dir, CONTENT))
+        File(dir, "source.name").writeText(name)
+        cached = null
+        return parsed
+    }
+
+    fun contentFile(dir: File) = File(dir, CONTENT)
 
     companion object {
         private const val CONTENT = "content.bin"

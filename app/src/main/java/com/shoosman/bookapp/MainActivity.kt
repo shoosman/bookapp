@@ -33,6 +33,17 @@ import com.shoosman.bookapp.ui.reader.ReaderScreen
 import com.shoosman.bookapp.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
+    // Синхронизация при входе в приложение и при уходе из него
+    override fun onStart() {
+        super.onStart()
+        (application as App).sync.requestSync(1_500)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (application as App).sync.requestSync(0)
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleShare(intent)

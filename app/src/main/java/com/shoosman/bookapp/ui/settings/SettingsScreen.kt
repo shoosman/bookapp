@@ -81,6 +81,9 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
             SectionTitle("Текст")
             TextSettingsPanel(settings)
 
+            SectionTitle("Облако")
+            SyncSection()
+
             SectionTitle("Плеер")
             Text("Перемотка назад", style = MaterialTheme.typography.bodyMedium)
             ChipRow(listOf(5, 10, 15, 30), settings.skipBackSec, { "$it с" }) { v ->
