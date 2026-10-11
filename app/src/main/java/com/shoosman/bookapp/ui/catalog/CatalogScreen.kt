@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
@@ -79,6 +80,7 @@ import com.shoosman.bookapp.data.BookInfo
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.CoverFinder
 import com.shoosman.bookapp.data.Opds
+import com.shoosman.bookapp.data.OpdsCatalog
 import com.shoosman.bookapp.data.OpdsEntry
 import com.shoosman.bookapp.data.OpdsFeed
 import com.shoosman.bookapp.data.SeriesGuess
@@ -98,14 +100,15 @@ import java.net.URLEncoder
 fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    var catalogs by remember { mutableStateOf(Opds.catalogs(ctx)) }
+    var catalogUrl by rememberSaveable { mutableStateOf(if (Opds.catalogs(ctx).size == 1) Opds.catalogs(ctx)[0].url else "") }
+    val catalog = catalogs.firstOrNull { it.url == catalogUrl }
     val stack = rememberSaveable(
         saver = androidx.compose.runtime.saveable.listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>(
             save = { it.toList() },
             restore = { it.toMutableStateList() },
         ),
-    ) {
-        mutableStateListOf(Opds.rootUrl(ctx))
-    }
+    ) { mutableStateListOf<String>().apply { if (catalogUrl.isNotEmpty()) add(catalogUrl) } }
     var feed by remember { mutableStateOf<OpdsFeed?>(null) }
     val extra = remember { mutableStateListOf<OpdsEntry>() }
     var next by remember { mutableStateOf<String?>(null) }
@@ -115,16 +118,26 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var byAuthor by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    var mirrorDialog by remember { mutableStateOf(false) }
+    var editDialog by remember { mutableStateOf<OpdsCatalog?>(null) }
+    var adding by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<OpdsEntry?>(null) }
     var reload by remember { mutableStateOf(0) }
+    var template by remember { mutableStateOf<String?>(null) }
 
-    val current = stack.last()
+    fun openCatalog(c: OpdsCatalog?) {
+        catalogUrl = c?.url.orEmpty()
+        stack.clear()
+        if (c != null) stack.add(c.url)
+        searching = false
+    }
+
+    val current = stack.lastOrNull()
     LaunchedEffect(current, reload) {
-        loading = true
-        error = null
         feed = null
         extra.clear()
+        error = null
+        if (current == null) return@LaunchedEffect
+        loading = true
         runCatching { Opds.load(current) }
             .onSuccess { feed = it; next = it.nextUrl }
             .onFailure {
@@ -133,29 +146,39 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
             }
         loading = false
     }
-
-    fun go(url: String) {
-        if (url != stack.last()) stack.add(url)
+    LaunchedEffect(catalogUrl) {
+        template = catalog?.let { runCatching { Opds.searchTemplate(it) }.getOrNull() }
     }
 
-    BackHandler(enabled = stack.size > 1) { stack.removeAt(stack.lastIndex) }
+    fun go(url: String) {
+        if (url != stack.lastOrNull()) stack.add(url)
+    }
+
+    BackHandler(enabled = stack.isNotEmpty() && (stack.size > 1 || catalogs.size > 1)) {
+        if (stack.size > 1) stack.removeAt(stack.lastIndex) else openCatalog(null)
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    if (stack.size > 1) IconButton(onClick = { stack.removeAt(stack.lastIndex) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                    if (stack.size > 1 || (stack.isNotEmpty() && catalogs.size > 1)) {
+                        IconButton(onClick = { if (stack.size > 1) stack.removeAt(stack.lastIndex) else openCatalog(null) }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+                        }
+                    }
                 },
                 title = {
-                    if (searching) {
+                    if (searching && catalog != null) {
                         TextField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = { Text(if (byAuthor) "Автор" else "Название книги") },
+                            placeholder = { Text(if (byAuthor) "Автор" else "Название или автор") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = {
-                                if (query.isNotBlank()) go(Opds.searchUrl(ctx, query, byAuthor))
+                                val t = template
+                                if (query.isNotBlank() && t != null) go(Opds.searchUrl(t, query, byAuthor))
                             }),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
@@ -164,25 +187,36 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
-                        Text(feed?.title?.takeIf { stack.size > 1 } ?: "Каталог", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            when {
+                                catalog == null -> "Каталоги"
+                                stack.size > 1 -> feed?.title ?: catalog.name
+                                else -> catalog.name
+                            },
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 },
                 actions = {
-                    if (searching) {
-                        IconButton(onClick = { searching = false }) { Icon(Icons.Filled.Close, "Закрыть поиск") }
-                    } else {
-                        IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Поиск") }
-                    }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Ещё") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("В начало каталога") },
-                                leadingIcon = { Icon(Icons.Filled.Home, null) },
-                                onClick = { menu = false; stack.clear(); stack.add(Opds.rootUrl(ctx)) },
-                            )
-                            DropdownMenuItem(text = { Text("Адрес зеркала…") }, onClick = { menu = false; mirrorDialog = true })
+                    if (catalog != null) {
+                        if (template != null) {
+                            if (searching) IconButton(onClick = { searching = false }) { Icon(Icons.Filled.Close, "Закрыть поиск") }
+                            else IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Поиск") }
                         }
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Ещё") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("В начало каталога") },
+                                    leadingIcon = { Icon(Icons.Filled.Home, null) },
+                                    onClick = { menu = false; openCatalog(catalog) },
+                                )
+                                DropdownMenuItem(text = { Text("Изменить адрес…") }, onClick = { menu = false; editDialog = catalog })
+                                DropdownMenuItem(text = { Text("Все каталоги") }, onClick = { menu = false; openCatalog(null) })
+                            }
+                        }
+                    } else {
+                        IconButton(onClick = { adding = true }) { Icon(Icons.Filled.Add, "Добавить каталог") }
                     }
                 },
             )
@@ -190,7 +224,16 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (searching) {
+            if (catalog == null) {
+                CatalogList(
+                    catalogs,
+                    onOpen = { openCatalog(it) },
+                    onEdit = { editDialog = it },
+                    onAdd = { adding = true },
+                )
+                return@Column
+            }
+            if (searching && catalog.isFlibustaLike) {
                 Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !byAuthor, onClick = { byAuthor = false }, label = { Text("Книги") })
                     FilterChip(selected = byAuthor, onClick = { byAuthor = true }, label = { Text("Авторы") })
@@ -206,14 +249,14 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                 ) {
                     Text(error!!, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        "Сейчас: ${Opds.host(ctx)}",
+                        "Адрес: ${catalog.url}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
                     Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { reload++ }) { Text("Повторить") }
-                        OutlinedButton(onClick = { mirrorDialog = true }) { Text("Другое зеркало") }
+                        OutlinedButton(onClick = { editDialog = catalog }) { Text("Другой адрес") }
                     }
                 }
                 f != null -> {
@@ -257,6 +300,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     selected?.let { e ->
         BookSheet(
             e,
+            allowDownload = catalog?.catalogOnly == false,
             onDismiss = { selected = null },
             onRelated = { url -> selected = null; go(url) },
             onOpenBrowser = onOpenBrowser,
@@ -264,36 +308,99 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
         )
     }
 
-    if (mirrorDialog) {
-        var host by remember { mutableStateOf(Opds.host(ctx)) }
+    if (adding || editDialog != null) {
+        val editing = editDialog
+        var name by remember { mutableStateOf(editing?.name.orEmpty()) }
+        var url by remember { mutableStateOf(editing?.url.orEmpty()) }
         AlertDialog(
-            onDismissRequest = { mirrorDialog = false },
-            title = { Text("Адрес зеркала") },
+            onDismissRequest = { adding = false; editDialog = null },
+            title = { Text(if (editing == null) "Новый каталог" else "Каталог") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Если каталог не открывается, укажите другое зеркало Флибусты или адрес любого каталога OPDS.",
+                        "Адрес каталога OPDS. Для Флибусты достаточно адреса зеркала, например flibusta.site.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    OutlinedTextField(value = host, onValueChange = { host = it }, singleLine = true, label = { Text("Адрес") })
+                    OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Название") })
+                    OutlinedTextField(value = url, onValueChange = { url = it }, singleLine = true, label = { Text("Адрес") })
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("flibusta.is", "flibusta.site", "flibusta.club").forEach { h ->
-                            AssistChip(onClick = { host = h }, label = { Text(h) })
+                        val chips = if (editing?.isFlibustaLike == true) {
+                            listOf("flibusta.is", "flibusta.site", "flibusta.club").map { OpdsCatalog(editing.name, "https://$it/opds") }
+                        } else Opds.presets
+                        chips.forEach { c ->
+                            AssistChip(onClick = { name = c.name; url = c.url }, label = { Text(c.host.ifBlank { c.name }) })
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    Opds.setHost(ctx, host)
-                    mirrorDialog = false
-                    stack.clear()
-                    stack.add(Opds.rootUrl(ctx))
-                    reload++
-                }) { Text("Сохранить") }
+                TextButton(
+                    enabled = url.isNotBlank(),
+                    onClick = {
+                        val c = OpdsCatalog(name.ifBlank { runCatching { java.net.URL(Opds.normalizeUrl(url)).host }.getOrDefault("Каталог") }, Opds.normalizeUrl(url))
+                        val list = catalogs.toMutableList()
+                        val i = list.indexOfFirst { it.url == editing?.url }
+                        if (i >= 0) list[i] = c else list.add(c)
+                        Opds.saveCatalogs(ctx, list)
+                        catalogs = list
+                        adding = false
+                        editDialog = null
+                        openCatalog(c)
+                        reload++
+                    },
+                ) { Text("Сохранить") }
             },
-            dismissButton = { TextButton(onClick = { mirrorDialog = false }) { Text("Отмена") } },
+            dismissButton = {
+                Row {
+                    if (editing != null && catalogs.size > 1) {
+                        TextButton(onClick = {
+                            val list = catalogs.filter { it.url != editing.url }
+                            Opds.saveCatalogs(ctx, list)
+                            catalogs = list
+                            editDialog = null
+                            openCatalog(null)
+                        }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(onClick = { adding = false; editDialog = null }) { Text("Отмена") }
+                }
+            },
         )
+    }
+}
+
+@Composable
+private fun CatalogList(catalogs: List<OpdsCatalog>, onOpen: (OpdsCatalog) -> Unit, onEdit: (OpdsCatalog) -> Unit, onAdd: () -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+        items(catalogs, key = { it.url }) { c ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(c.name, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        c.host + if (c.catalogOnly) " · только поиск и описание" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { onEdit(c) }) { Icon(Icons.Filled.MoreVert, "Изменить") }
+            }
+            HorizontalDivider()
+        }
+        item {
+            TextButton(onClick = onAdd, modifier = Modifier.padding(8.dp)) {
+                Icon(Icons.Filled.Add, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить каталог OPDS")
+            }
+            Text(
+                "OPDS — открытый формат книжных каталогов: так устроены Флибуста, Project Gutenberg, домашний сервер Calibre и многие библиотеки.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+        }
     }
 }
 
@@ -374,6 +481,7 @@ private fun BookRow(e: OpdsEntry, onClick: () -> Unit) {
 @Composable
 private fun BookSheet(
     e: OpdsEntry,
+    allowDownload: Boolean,
     onDismiss: () -> Unit,
     onRelated: (String) -> Unit,
     onOpenBrowser: (String) -> Unit,
@@ -436,19 +544,47 @@ private fun BookSheet(
                         adding = true
                         scope.launch {
                             val cover = withContext(Dispatchers.IO) { e.coverUrl?.let { download(it) } }
-                            repo.createManual(
+                            val id = repo.createManual(
                                 BookInfo(
                                     title = e.title, author = author, annotation = e.summary,
                                     cover = cover, series = e.series, seriesIndex = e.seriesIndex,
                                 ),
                                 BookStatus.WANT,
                             )
+                            if (e.genres.isNotEmpty()) {
+                                repo.dao.get(id)?.let { nb -> repo.dao.update(nb.copy(genres = e.genres.joinToString("; "))) }
+                            }
+                            // Остальное (обложка, цикл, жанры Литреса) — с Литреса
+                            App.instance.enricher.enrichOne(id)
                             CrashLog.note("Каталог: добавлена книга в «Хочу прочитать»")
                             adding = false
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (adding) "Добавляю…" else "Хочу прочитать") }
+            }
+
+            // Скачивание — только из каталогов, где это законно (Gutenberg, свой Calibre и т. п.)
+            val file = if (allowDownload) {
+                e.downloads.firstOrNull { it.first.contains("fb2") } ?: e.downloads.firstOrNull { it.first.contains("epub") }
+                    ?: e.downloads.firstOrNull { it.first.contains("audio") || it.first.contains("zip") }
+            } else null
+            if (file != null && existing == null) {
+                var dl by remember { mutableStateOf<String?>(null) }
+                OutlinedButton(
+                    enabled = dl == null,
+                    onClick = {
+                        dl = "Скачиваю…"
+                        repo.appScope.launch {
+                            val r = runCatching {
+                                val d = com.shoosman.bookapp.data.Downloader.download(App.instance, file.second, mime = file.first)
+                                repo.importDownloaded(d.file, d.name, d.mime, null) {}
+                            }
+                            dl = r.fold({ "Книга в библиотеке" }, { it.message ?: "Не удалось скачать" })
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text(dl ?: "Скачать в Чтец") }
             }
 
             Text("Где купить", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))

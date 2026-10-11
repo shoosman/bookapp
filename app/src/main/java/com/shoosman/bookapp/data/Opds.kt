@@ -25,7 +25,17 @@ data class OpdsEntry(
     val isBook: Boolean,
     /** Ссылки «Все книги автора», «Книги серии» и т. п. */
     val related: List<Pair<String, String>>,
+    /** Файлы книги (тип → адрес). Используются только в каталогах, где скачивание законно. */
+    val downloads: List<Pair<String, String>> = emptyList(),
 )
+
+/** Каталог OPDS из списка пользователя. */
+data class OpdsCatalog(val name: String, val url: String) {
+    val host: String get() = runCatching { java.net.URL(url).host.removePrefix("www.") }.getOrDefault("")
+    /** Флибуста и подобные библиотеки — только для поиска книг, без скачивания. */
+    val catalogOnly: Boolean get() = Regex("""flibusta|coollib|librusec|lib\.rus\.ec|litmir|royallib|rulit|libking|knigism|bookz""").containsMatchIn(host)
+    val isFlibustaLike: Boolean get() = Regex("""flibusta|coollib""").containsMatchIn(host)
+}
 
 data class OpdsFeed(val title: String, val entries: List<OpdsEntry>, val nextUrl: String?)
 
@@ -35,32 +45,88 @@ data class OpdsFeed(val title: String, val entries: List<OpdsEntry>, val nextUrl
  */
 object Opds {
     private const val PREFS = "catalog"
-    private const val KEY_HOST = "host"
+    private const val KEY_LIST = "catalogs"
     const val DEFAULT_HOST = "flibusta.is"
 
-    fun host(ctx: Context): String =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_HOST, DEFAULT_HOST)!!.ifBlank { DEFAULT_HOST }
+    /** Готовые каталоги для быстрого добавления. */
+    val presets = listOf(
+        OpdsCatalog("Флибуста", "https://flibusta.is/opds"),
+        OpdsCatalog("Project Gutenberg", "https://m.gutenberg.org/ebooks.opds/"),
+    )
 
-    fun setHost(ctx: Context, host: String) {
-        val clean = host.trim().removePrefix("https://").removePrefix("http://").trimEnd('/')
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_HOST, clean).apply()
+    fun catalogs(ctx: Context): List<OpdsCatalog> {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = p.getString(KEY_LIST, null)
+        if (raw == null) {
+            // Раньше хранился только адрес зеркала Флибусты
+            val host = p.getString("host", null)?.ifBlank { null } ?: DEFAULT_HOST
+            return listOf(OpdsCatalog("Флибуста", "https://$host/opds"))
+        }
+        return runCatching {
+            val a = org.json.JSONArray(raw)
+            (0 until a.length()).map { a.getJSONObject(it).let { o -> OpdsCatalog(o.getString("name"), o.getString("url")) } }
+        }.getOrDefault(emptyList())
     }
 
-    fun rootUrl(ctx: Context) = "https://${host(ctx)}/opds"
+    fun saveCatalogs(ctx: Context, list: List<OpdsCatalog>) {
+        val a = org.json.JSONArray()
+        list.forEach { a.put(org.json.JSONObject().put("name", it.name).put("url", it.url)) }
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_LIST, a.toString()).apply()
+    }
 
-    fun searchUrl(ctx: Context, query: String, authors: Boolean = false): String =
-        "https://${host(ctx)}/opds/search?searchType=${if (authors) "authors" else "books"}&searchTerm=" +
-            URLEncoder.encode(query.trim(), "UTF-8")
+    /** Адрес вида «flibusta.site» или полный — превращаем в адрес каталога. */
+    fun normalizeUrl(input: String): String {
+        var u = input.trim()
+        if (!u.startsWith("http")) u = "https://$u"
+        val path = runCatching { java.net.URL(u).path }.getOrDefault("")
+        if ((path.isEmpty() || path == "/") && Regex("""flibusta|coollib""").containsMatchIn(u)) u = u.trimEnd('/') + "/opds"
+        return u
+    }
 
-    suspend fun load(url: String): OpdsFeed = withContext(Dispatchers.IO) {
+    private val searchTemplates = HashMap<String, String?>()
+
+    /** Шаблон поиска каталога ({searchTerms}); null — каталог поиск не поддерживает. */
+    suspend fun searchTemplate(c: OpdsCatalog): String? = withContext(Dispatchers.IO) {
+        searchTemplates[c.url]?.let { return@withContext it }
+        if (c.isFlibustaLike) {
+            val base = java.net.URL(c.url).let { "${it.protocol}://${it.host}" }
+            return@withContext "$base/opds/search?searchType=books&searchTerm={searchTerms}".also { searchTemplates[c.url] = it }
+        }
+        val t = runCatching {
+            val xml = fetch(c.url)
+            val doc = Jsoup.parse(xml, c.url, Parser.xmlParser())
+            val links = doc.select("feed > link[rel=search]")
+            links.firstOrNull { it.attr("href").contains("{searchTerms}") }?.let { abs(c.url, it.attr("href")) }
+                ?: links.firstOrNull { it.attr("type").contains("opensearchdescription") }?.let { l ->
+                    val descUrl = abs(c.url, l.attr("href"))
+                    val desc = Jsoup.parse(fetch(descUrl), descUrl, Parser.xmlParser())
+                    val urls = desc.select("Url")
+                    (urls.firstOrNull { it.attr("type").contains("atom") } ?: urls.firstOrNull())?.attr("template")?.let { abs(descUrl, it) }
+                }
+        }.getOrNull()
+        searchTemplates[c.url] = t
+        t
+    }
+
+    fun searchUrl(template: String, query: String, authors: Boolean = false): String {
+        val t = if (authors) template.replace("searchType=books", "searchType=authors") else template
+        return t.replace("{searchTerms}", URLEncoder.encode(query.trim(), "UTF-8"))
+            .replace(Regex("""\{[^}]+\?\}"""), "")
+    }
+
+    private fun fetch(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Chtets/1.0 (OPDS)")
             .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.5")
             .build()
-        val xml = Http.client.newCall(req).execute().use { r ->
+        return Http.client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) error("Каталог ответил ${r.code}. Если сайт недоступен, укажите другое зеркало.")
             r.body?.string().orEmpty()
         }
+    }
+
+    suspend fun load(url: String): OpdsFeed = withContext(Dispatchers.IO) {
+        val xml = fetch(url)
         if (!xml.trimStart().startsWith("<?xml") && !xml.contains("<feed")) {
             error("По этому адресу нет каталога OPDS. Проверьте адрес зеркала.")
         }
@@ -110,6 +176,8 @@ object Opds {
             seriesIndex = idx,
             isBook = isBook,
             related = related,
+            downloads = links.filter { it.attr("rel").startsWith("http://opds-spec.org/acquisition") }
+                .map { it.attr("type") to abs(base, it.attr("href")) },
         )
     }
 
