@@ -1,6 +1,10 @@
 package com.shoosman.bookapp
 
 import android.app.Application
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import androidx.room.Room
 import com.shoosman.bookapp.data.AppDatabase
 import com.shoosman.bookapp.data.BookRepository
@@ -30,6 +34,9 @@ class App : Application() {
         settings = SettingsStore(this)
         player = PlayerConnection(this, repo)
         updater = Updater(this)
+        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
+            settings.flow.collect { player.setSkip(it.skipBackSec, it.skipForwardSec) }
+        }
     }
 
     companion object {

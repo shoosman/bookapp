@@ -77,6 +77,31 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     /** Главы текущей книги — для списка глав в плеере. */
     val currentChapters: List<AudioChapter> get() = chapters
+    val hasChapters: Boolean get() = chapters.isNotEmpty() && _ui.value.bookId >= 0
+
+    /** Шаг перемотки из настроек (нужен и шторке). */
+    var skipBackMs = 15_000L
+        private set
+    var skipForwardMs = 30_000L
+        private set
+
+    fun setSkip(backSec: Int, forwardSec: Int) {
+        skipBackMs = backSec * 1000L
+        skipForwardMs = forwardSec * 1000L
+    }
+
+    /** Перемотка из шторки/экрана блокировки. */
+    fun skipBackFromSystem(fallback: Player) = skipFromSystem(-skipBackMs, fallback)
+    fun skipForwardFromSystem(fallback: Player) = skipFromSystem(skipForwardMs, fallback)
+
+    private fun skipFromSystem(delta: Long, fallback: Player) {
+        if (controller != null && _ui.value.bookId >= 0) {
+            refresh()
+            skip(delta)
+        } else {
+            fallback.seekTo((fallback.currentPosition + delta).coerceAtLeast(0))
+        }
+    }
 
     private val _ui = MutableStateFlow(PlayerUi())
     val ui: StateFlow<PlayerUi> = _ui.asStateFlow()
