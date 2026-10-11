@@ -33,7 +33,7 @@ data class OpdsEntry(
 data class OpdsCatalog(val name: String, val url: String) {
     val host: String get() = runCatching { java.net.URL(url).host.removePrefix("www.") }.getOrDefault("")
     /** Флибуста и подобные библиотеки — только для поиска книг, без скачивания. */
-    val catalogOnly: Boolean get() = false
+    val catalogOnly: Boolean get() = Regex("""flibusta|coollib|librusec|lib\.rus\.ec|litmir|royallib|rulit|libking|knigism|bookz""").containsMatchIn(host)
     val isFlibustaLike: Boolean get() = Regex("""flibusta|coollib""").containsMatchIn(host)
 }
 
