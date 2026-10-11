@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.catalog
 
+import com.shoosman.bookapp.ErrorText
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -142,7 +143,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
             .onSuccess { feed = it; next = it.nextUrl }
             .onFailure {
                 CrashLog.note("Каталог: ${it.javaClass.simpleName} ${it.message}")
-                error = it.message?.takeIf { m -> m.length < 200 } ?: "Каталог не открылся"
+                error = ErrorText.ru(it, "Каталог не открылся")
             }
         loading = false
     }
@@ -580,7 +581,7 @@ private fun BookSheet(
                                 val d = com.shoosman.bookapp.data.Downloader.download(App.instance, file.second, mime = file.first)
                                 repo.importDownloaded(d.file, d.name, d.mime, null) {}
                             }
-                            dl = r.fold({ "Книга в библиотеке" }, { it.message ?: "Не удалось скачать" })
+                            dl = r.fold({ "Книга в библиотеке" }, { ErrorText.ru(it, "Не удалось скачать") })
                         }
                     },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),

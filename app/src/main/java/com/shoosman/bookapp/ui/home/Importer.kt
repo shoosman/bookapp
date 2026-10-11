@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.home
 
+import com.shoosman.bookapp.ErrorText
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -75,7 +76,7 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: 
                     onOpenBook(it.bookId)
                 }.onFailure {
                     CrashLog.note("Ошибка добавления: ${it.javaClass.simpleName}")
-                    importer.error = (it.message ?: "Не удалось добавить книгу") to CrashLog.describe(it, "Ошибка при добавлении книги")
+                    importer.error = ErrorText.ru(it, "Не удалось добавить книгу") to CrashLog.describe(it, "Ошибка при добавлении книги")
                 }
             }
         }

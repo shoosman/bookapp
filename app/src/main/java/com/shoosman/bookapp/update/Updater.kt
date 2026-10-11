@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.update
 
+import com.shoosman.bookapp.ErrorText
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -72,7 +73,7 @@ class Updater(private val ctx: Context) {
                 }
             }.onFailure {
                 CrashLog.note("Проверка обновлений: ${it.message}")
-                _state.value = if (manual) UpdateState.Failed(it.message ?: "Не удалось проверить обновления") else UpdateState.Idle
+                _state.value = if (manual) UpdateState.Failed(ErrorText.ru(it, "Не удалось проверить обновления")) else UpdateState.Idle
             }
         }
     }
@@ -102,7 +103,7 @@ class Updater(private val ctx: Context) {
                 install(file)
             }.onFailure {
                 CrashLog.note("Обновление: ошибка ${it.message}")
-                _state.value = UpdateState.Failed("Не удалось скачать обновление: ${it.message}")
+                _state.value = UpdateState.Failed("Не удалось скачать обновление. " + ErrorText.ru(it))
             }
         }
     }

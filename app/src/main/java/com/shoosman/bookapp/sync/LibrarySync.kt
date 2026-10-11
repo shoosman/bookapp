@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.sync
 
+import com.shoosman.bookapp.ErrorText
 import android.content.Context
 import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.data.AnchorEntity
@@ -112,7 +113,7 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                         GitHubAuth.Poll.Pending -> Unit
                         GitHubAuth.Poll.SlowDown -> interval += 5
                         is GitHubAuth.Poll.Failed -> {
-                            _ui.update { it.copy(userCode = null, error = r.message) }
+                            _ui.update { it.copy(userCode = null, error = ErrorText.text(r.message, "Не удалось войти")) }
                             return@launch
                         }
                     }
@@ -120,7 +121,7 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                 _ui.update { it.copy(userCode = null, error = "Время на ввод кода вышло. Попробуйте ещё раз.") }
             } catch (e: Exception) {
                 CrashLog.note("Синхронизация: ошибка входа ${e.message}")
-                _ui.update { it.copy(userCode = null, error = "Не удалось войти: ${e.message}") }
+                _ui.update { it.copy(userCode = null, error = "Не удалось войти. " + ErrorText.ru(e)) }
             }
         }
     }
@@ -142,7 +143,7 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                 }
                 return
             }
-            _ui.update { it.copy(error = e.message) }
+            _ui.update { it.copy(error = ErrorText.ru(e)) }
             return
         } catch (e: java.io.IOException) {
             CrashLog.note("Синхронизация: после входа нет связи ${e.message}")
@@ -181,11 +182,12 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                     e is GitHubException && e.code == 401 -> {
                         prefs.edit().remove(KEY_TOKEN).apply()
                         _ui.update { it.copy(connected = false) }
-                        e.message
+                        ErrorText.ru(e)
                     }
                     e is java.net.UnknownHostException -> "Не удалось найти адрес GitHub. Проверьте интернет или VPN — попробую ещё раз позже."
-                    e is java.io.IOException -> "Нет связи с GitHub: ${e.message}"
-                    else -> e.message ?: e.javaClass.simpleName
+                    e is GitHubException -> ErrorText.ru(e)
+                    e is java.io.IOException -> "Нет связи с GitHub. " + ErrorText.ru(e)
+                    else -> "Синхронизация не удалась. " + ErrorText.ru(e)
                 }
                 _ui.update { it.copy(running = false, error = msg) }
             }

@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.book
 
+import com.shoosman.bookapp.ErrorText
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -134,7 +135,7 @@ fun BookScreen(
                 r.onSuccess { notice = it }
                 r.onFailure {
                     CrashLog.note("Ошибка: ${it.javaClass.simpleName}")
-                    error = (it.message ?: "Ошибка") to CrashLog.describe(it, "Ошибка на странице книги")
+                    error = ErrorText.ru(it, "Ошибка") to CrashLog.describe(it, "Ошибка на странице книги")
                 }
             }
         }

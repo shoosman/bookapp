@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.reader
 
+import com.shoosman.bookapp.ErrorText
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -138,7 +139,7 @@ fun ReaderScreen(
         try {
             content = repo.content(b) ?: run { loadError = "У этой книги нет текста"; null }
         } catch (e: Exception) {
-            loadError = "Не удалось открыть текст: ${e.message}"
+            loadError = "Не удалось открыть текст. " + ErrorText.ru(e)
         }
         repo.markOpened(bookId)
     }

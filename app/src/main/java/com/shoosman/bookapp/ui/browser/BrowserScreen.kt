@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.browser
 
+import com.shoosman.bookapp.ErrorText
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.webkit.CookieManager
@@ -126,7 +127,7 @@ fun BrowserScreen(startUrl: String?, onBack: () -> Unit, onOpenBook: (Long) -> U
                     if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) onOpenBook(res.bookId)
                 }.onFailure {
                     CrashLog.note("Браузер: ошибка скачивания ${it.message}")
-                    error = (it.message ?: "Не удалось скачать файл") to CrashLog.describe(it, "Ошибка скачивания")
+                    error = ErrorText.ru(it, "Не удалось скачать файл") to CrashLog.describe(it, "Ошибка скачивания")
                 }
             }
         }

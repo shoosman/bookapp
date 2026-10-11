@@ -1,5 +1,6 @@
 package com.shoosman.bookapp.ui.home
 
+import com.shoosman.bookapp.ErrorText
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -146,7 +147,7 @@ fun AddBookDialog(
                         loading = false
                         return@launch
                     }
-                    error = it.message?.takeIf { m -> m.length < 200 } ?: "Не удалось открыть страницу. Проверьте ссылку или заполните поля вручную."
+                    error = ErrorText.ru(it, "Не удалось открыть страницу. Проверьте ссылку или заполните поля вручную.")
                 }
             loading = false
         }
