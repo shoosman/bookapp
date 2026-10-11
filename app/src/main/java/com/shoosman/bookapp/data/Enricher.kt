@@ -215,6 +215,6 @@ class Enricher(private val ctx: Context, private val repo: BookRepository) {
     }
 
     companion object {
-        private const val KEY_AUTO_DONE = "auto_v1_done"
+        private const val KEY_AUTO_DONE = "auto_v2_done"
     }
 }
