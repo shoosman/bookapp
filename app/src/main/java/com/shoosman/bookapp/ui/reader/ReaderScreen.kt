@@ -1,24 +1,22 @@
 package com.shoosman.bookapp.ui.reader
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.provider.Settings
+import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,12 +24,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -47,6 +43,7 @@ import androidx.compose.material.icons.filled.LocationSearching
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -56,18 +53,20 @@ import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,19 +76,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.Hyphens
-import androidx.compose.ui.text.style.LineBreak
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
@@ -100,11 +92,10 @@ import com.shoosman.bookapp.data.BookmarkEntity
 import com.shoosman.bookapp.data.TrackEntity
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
-import com.shoosman.bookapp.text.ParaKind
-import com.shoosman.bookapp.text.Paragraph
 import com.shoosman.bookapp.ui.common.fmtTime
 import com.shoosman.bookapp.ui.settings.TextSettingsPanel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -151,6 +142,12 @@ fun ReaderScreen(
     ReaderContent(b, c, tracks, anchors, bookmarks, startPos, settings, onBack, onOpenPlayer)
 }
 
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderContent(
@@ -169,9 +166,9 @@ private fun ReaderContent(
     val player = app.player
     val bookId = book.id
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
     val snackbar = remember { SnackbarHostState() }
     val clipboard = LocalClipboardManager.current
+    val ctx = LocalContext.current
     val ps by player.ui.collectAsStateWithLifecycle()
 
     val mapper = remember(c, tracks, anchors) {
@@ -184,7 +181,29 @@ private fun ReaderContent(
     var sheet by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Int?>(null) }
     var follow by rememberSaveable { mutableStateOf(true) }
-    var restored by remember { mutableStateOf(false) }
+
+    // Текущее место чтения — общее для обоих режимов.
+    var curChar by rememberSaveable { mutableIntStateOf(if (startPos >= 0) startPos else book.readPos) }
+    val jumps = remember { MutableSharedFlow<Int>(extraBufferCapacity = 4) }
+    fun jumpTo(char: Int) {
+        follow = false
+        jumps.tryEmit(char.coerceIn(0, c.totalChars))
+    }
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { curChar }.collectLatest {
+            delay(600)
+            repo.saveReadPos(bookId, it)
+        }
+    }
+
+    val curPara = c.paragraphAt(curChar)
+    val curChapter = c.chapterAt(curChar)
+    val chapterTitle = c.chapters.getOrNull(curChapter)?.title.orEmpty()
+
+    // Где сейчас звучит аудио.
+    val audioChar = if (audioActive && mapper != null) mapper.charAt(ps.globalMs) else -1
+    val audioPara = if (audioChar >= 0) c.paragraphAt(audioChar) else -1
 
     // Экран не гаснет, пока открыта книга.
     val view = LocalView.current
@@ -193,42 +212,34 @@ private fun ReaderContent(
         onDispose { view.keepScreenOn = false }
     }
 
-    // Восстанавливаем место чтения.
-    LaunchedEffect(Unit) {
-        val pos = if (startPos >= 0) startPos else book.readPos
-        listState.scrollToItem(c.paragraphAt(pos))
-        restored = true
-    }
-
-    // Сохраняем место чтения.
-    LaunchedEffect(restored) {
-        if (!restored) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex to listState.canScrollForward }.collectLatest { (idx, canScroll) ->
-            delay(600)
-            val pos = if (!canScroll) c.totalChars else c.paragraphs.getOrNull(idx)?.start ?: 0
-            repo.saveReadPos(bookId, pos)
+    // Яркость: своя для читалки, меняется вертикальным свайпом в режиме книги.
+    val activity = remember(ctx) { ctx.findActivity() }
+    var brightness by remember { mutableFloatStateOf(settings.brightness) }
+    var brightnessHint by remember { mutableStateOf(false) }
+    LaunchedEffect(settings.brightness) { brightness = settings.brightness }
+    LaunchedEffect(brightness) {
+        activity?.window?.let { w ->
+            w.attributes = w.attributes.apply {
+                screenBrightness = if (brightness < 0) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else brightness
+            }
         }
     }
-
-    val curPara by remember { derivedStateOf { listState.firstVisibleItemIndex.coerceIn(0, (c.paragraphs.size - 1).coerceAtLeast(0)) } }
-    val curChapter = c.chapterAt(c.paragraphs.getOrNull(curPara)?.start ?: 0)
-
-    // Где сейчас звучит аудио.
-    val audioPara = if (audioActive && mapper != null) c.paragraphAt(mapper.charAt(ps.globalMs)) else -1
-
-    // Ручная прокрутка во время прослушивания выключает «следовать за аудио».
-    val dragged by listState.interactionSource.collectIsDraggedAsState()
-    LaunchedEffect(dragged) {
-        if (dragged && audioActive && ps.isPlaying) follow = false
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.window?.let { w ->
+                w.attributes = w.attributes.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+            }
+        }
     }
-
-    LaunchedEffect(audioPara, follow, ps.isPlaying, restored) {
-        if (!restored || !follow || !audioActive || !ps.isPlaying || audioPara < 0) return@LaunchedEffect
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val first = visible.firstOrNull()?.index ?: 0
-        val last = visible.lastOrNull()?.index ?: 0
-        if (audioPara < first || audioPara >= last) listState.animateScrollToItem(audioPara)
+    LaunchedEffect(brightnessHint) {
+        if (brightnessHint) {
+            delay(1200)
+            brightnessHint = false
+        }
     }
+    fun systemBrightness(): Float = runCatching {
+        Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+    }.getOrDefault(0.5f).coerceIn(0.02f, 1f)
 
     fun listenFrom(i: Int) {
         val m = mapper ?: return
@@ -261,28 +272,67 @@ private fun ReaderContent(
         }
     }
 
-    val bars = WindowInsets.systemBars.asPaddingValues()
-    val bg = MaterialTheme.colorScheme.background
+    fun userMoved() {
+        if (audioActive && ps.isPlaying) follow = false
+    }
 
-    Box(Modifier.fillMaxSize().background(bg)) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 22.dp,
-                end = 22.dp,
-                top = bars.calculateTopPadding() + 24.dp,
-                bottom = bars.calculateBottomPadding() + 96.dp,
-            ),
-        ) {
-            itemsIndexed(c.paragraphs) { i, p ->
-                ParagraphView(
-                    p = p,
-                    s = settings,
-                    highlighted = i == audioPara,
-                    onTap = { showUi = !showUi },
-                    onLongPress = { selected = i },
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        key(settings.pageMode) {
+            if (settings.pageMode) {
+                PagedBody(
+                    c = c,
+                    settings = settings,
+                    initialChar = curChar,
+                    jumps = jumps,
+                    audioChar = audioChar,
+                    audioPara = audioPara,
+                    follow = follow,
+                    isPlaying = audioActive && ps.isPlaying,
+                    chapterTitle = chapterTitle,
+                    onCharChange = { curChar = it },
+                    onTapCenter = { showUi = !showUi },
+                    onLongPress = { selected = it },
+                    onUserTurn = { userMoved() },
+                    onBrightnessDelta = { d ->
+                        val base = if (brightness < 0) systemBrightness() else brightness
+                        brightness = (base + d * 1.3f).coerceIn(0.02f, 1f)
+                        brightnessHint = true
+                    },
+                    onBrightnessEnd = {
+                        val v = brightness
+                        scope.launch { app.settings.update { it.copy(brightness = v) } }
+                    },
                 )
+            } else {
+                ScrollBody(
+                    c = c,
+                    settings = settings,
+                    initialChar = curChar,
+                    jumps = jumps,
+                    audioPara = audioPara,
+                    follow = follow,
+                    isPlaying = audioActive && ps.isPlaying,
+                    onCharChange = { curChar = it },
+                    onTap = { showUi = !showUi },
+                    onLongPress = { selected = it },
+                    onUserScroll = { userMoved() },
+                )
+            }
+        }
+
+        // Подсказка яркости
+        AnimatedVisibility(
+            visible = brightnessHint,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp, shadowElevation = 6.dp) {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.WbSunny, null)
+                    Spacer(Modifier.width(10.dp))
+                    Text("${(brightness.coerceAtLeast(0f) * 100).roundToInt()}%", style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
 
@@ -302,7 +352,7 @@ private fun ReaderContent(
                     Column(Modifier.weight(1f)) {
                         Text(book.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            c.chapters.getOrNull(curChapter)?.title.orEmpty(),
+                            chapterTitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -312,7 +362,7 @@ private fun ReaderContent(
                     IconButton(onClick = { sheet = "toc" }) { Icon(Icons.AutoMirrored.Filled.List, "Оглавление") }
                     IconButton(onClick = { addBookmark(curPara) }) { Icon(Icons.Filled.BookmarkAdd, "Добавить закладку") }
                     IconButton(onClick = { sheet = "bookmarks" }) { Icon(Icons.Filled.Bookmarks, "Закладки") }
-                    IconButton(onClick = { sheet = "text" }) { Icon(Icons.Filled.FormatSize, "Оформление текста") }
+                    IconButton(onClick = { sheet = "text" }) { Icon(Icons.Filled.FormatSize, "Оформление") }
                 }
             }
         }
@@ -327,11 +377,10 @@ private fun ReaderContent(
             Surface(tonalElevation = 3.dp, shadowElevation = 4.dp) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     var sliderValue by remember { mutableStateOf<Float?>(null) }
-                    val last = (c.paragraphs.size - 1).coerceAtLeast(1)
-                    val progress = curPara.toFloat() / last
-                    val shownProgress = sliderValue ?: progress
+                    val progress = curChar.toFloat() / c.totalChars.coerceAtLeast(1)
+                    val shown = sliderValue ?: progress
                     Row {
-                        Text("${(shownProgress * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
+                        Text("${(shown * 100).roundToInt()}%", style = MaterialTheme.typography.labelMedium)
                         Spacer(Modifier.weight(1f))
                         Text(
                             "Глава ${curChapter + 1} из ${c.chapters.size}",
@@ -340,13 +389,12 @@ private fun ReaderContent(
                         )
                     }
                     Slider(
-                        value = shownProgress,
+                        value = shown.coerceIn(0f, 1f),
                         onValueChange = { sliderValue = it },
                         onValueChangeFinished = {
-                            val target = ((sliderValue ?: progress) * last).roundToInt()
+                            val target = ((sliderValue ?: progress) * c.totalChars).roundToInt()
                             sliderValue = null
-                            follow = false
-                            scope.launch { listState.scrollToItem(target) }
+                            jumpTo(target)
                         },
                     )
                     if (hasAudio) {
@@ -367,13 +415,10 @@ private fun ReaderContent(
                                 checked = follow,
                                 onCheckedChange = {
                                     follow = it
-                                    if (it && audioPara >= 0) scope.launch { listState.animateScrollToItem(audioPara) }
+                                    if (it && audioChar >= 0) jumps.tryEmit(audioChar)
                                 },
                             ) {
-                                Icon(
-                                    if (follow) Icons.Filled.MyLocation else Icons.Filled.LocationSearching,
-                                    "Следовать за аудио",
-                                )
+                                Icon(if (follow) Icons.Filled.MyLocation else Icons.Filled.LocationSearching, "Следовать за аудио")
                             }
                             IconButton(onClick = onOpenPlayer) { Icon(Icons.Filled.GraphicEq, "Открыть плеер") }
                         }
@@ -382,17 +427,17 @@ private fun ReaderContent(
             }
         }
 
-        // Компактные кнопки, когда панели скрыты, а аудио играет.
+        // Компактные кнопки, когда панели скрыты, а аудио включено.
         if (!showUi && audioActive) {
             Column(
-                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp),
+                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.End,
             ) {
-                if (!follow && ps.isPlaying && audioPara >= 0) {
+                if (!follow && ps.isPlaying && audioChar >= 0) {
                     SmallFloatingActionButton(onClick = {
                         follow = true
-                        scope.launch { listState.animateScrollToItem(audioPara) }
+                        jumps.tryEmit(audioChar)
                     }) { Icon(Icons.Filled.MyLocation, "К месту аудио") }
                 }
                 SmallFloatingActionButton(onClick = { player.toggle() }) {
@@ -465,8 +510,7 @@ private fun ReaderContent(
                             .fillMaxWidth()
                             .clickable {
                                 sheet = null
-                                follow = false
-                                scope.launch { listState.scrollToItem(ch.paragraph) }
+                                jumpTo(ch.start)
                             }
                             .padding(start = (24 + ch.depth * 16).dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
                     )
@@ -492,8 +536,7 @@ private fun ReaderContent(
                         leadingContent = { Icon(Icons.Filled.Bookmark, null, tint = MaterialTheme.colorScheme.primary) },
                         modifier = Modifier.clickable {
                             sheet = null
-                            follow = false
-                            scope.launch { listState.scrollToItem(c.paragraphAt(bm.charPos)) }
+                            jumpTo(bm.charPos)
                         },
                     )
                 }
@@ -506,80 +549,4 @@ private fun ReaderContent(
             Spacer(Modifier.height(32.dp))
         }
     }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ParagraphView(
-    p: Paragraph,
-    s: AppSettings,
-    highlighted: Boolean,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit,
-) {
-    val size = s.fontSize
-    val base = TextStyle(
-        color = MaterialTheme.colorScheme.onBackground,
-        fontFamily = if (s.serif) FontFamily.Serif else FontFamily.SansSerif,
-        fontSize = size.sp,
-        lineHeight = (size * s.lineHeight).sp,
-        hyphens = Hyphens.Auto,
-        lineBreak = LineBreak.Paragraph,
-    )
-    val style: TextStyle
-    val pad: Modifier
-    when (p.kind) {
-        ParaKind.TITLE -> {
-            style = base.copy(
-                fontSize = (size * 1.25f).sp,
-                lineHeight = (size * 1.25f * 1.3f).sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                hyphens = Hyphens.None,
-            )
-            pad = Modifier.padding(top = 28.dp, bottom = 14.dp)
-        }
-        ParaKind.SUBTITLE -> {
-            style = base.copy(fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-            pad = Modifier.padding(vertical = 10.dp)
-        }
-        ParaKind.EPIGRAPH -> {
-            style = base.copy(fontStyle = FontStyle.Italic, fontSize = (size * 0.92f).sp)
-            pad = Modifier.padding(start = 48.dp, bottom = 4.dp)
-        }
-        ParaKind.POEM -> {
-            style = base.copy(fontStyle = FontStyle.Italic)
-            pad = Modifier.padding(start = 32.dp)
-        }
-        ParaKind.AUTHOR -> {
-            style = base.copy(fontStyle = FontStyle.Italic, textAlign = TextAlign.End)
-            pad = Modifier.padding(bottom = 10.dp)
-        }
-        ParaKind.TEXT -> {
-            style = base.copy(
-                textAlign = if (s.justify) TextAlign.Justify else TextAlign.Start,
-                textIndent = TextIndent(firstLine = (size * 1.5f).sp),
-            )
-            pad = Modifier.padding(bottom = (size * 0.35f).dp)
-        }
-    }
-    val highlight = if (highlighted) {
-        Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.13f), RoundedCornerShape(4.dp))
-    } else {
-        Modifier
-    }
-    Text(
-        p.text,
-        style = style,
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(highlight)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onTap,
-                onLongClick = onLongPress,
-            )
-            .then(pad),
-    )
 }

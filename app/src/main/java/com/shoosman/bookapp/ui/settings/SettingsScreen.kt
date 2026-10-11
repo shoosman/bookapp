@@ -134,6 +134,30 @@ fun TextSettingsPanel(settings: AppSettings, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.height(12.dp))
+        Text("Чтение", style = MaterialTheme.typography.bodyMedium)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = settings.pageMode, onClick = { save { it.copy(pageMode = true) } }, label = { Text("Страницы") })
+            FilterChip(selected = !settings.pageMode, onClick = { save { it.copy(pageMode = false) } }, label = { Text("Прокрутка") })
+        }
+        if (settings.pageMode) {
+            Text(
+                "Края экрана листают, свайп вверх-вниз меняет яркость",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (settings.brightness < 0) "Яркость: как в системе" else "Яркость: ${(settings.brightness * 100).roundToInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            if (settings.brightness >= 0) {
+                androidx.compose.material3.TextButton(onClick = { save { it.copy(brightness = -1f) } }) { Text("Сбросить") }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
         Text("Размер шрифта: ${fontSize.roundToInt()}", style = MaterialTheme.typography.bodyMedium)
         Slider(
             value = fontSize,

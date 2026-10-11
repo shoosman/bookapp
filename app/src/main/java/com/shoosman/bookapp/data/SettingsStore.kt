@@ -21,6 +21,10 @@ data class AppSettings(
     val skipBackSec: Int = 15,
     val skipForwardSec: Int = 30,
     val keepScreenOn: Boolean = true,
+    /** true — листание страниц, false — прокрутка */
+    val pageMode: Boolean = true,
+    /** Яркость в читалке 0..1, -1 — как в системе */
+    val brightness: Float = -1f,
 )
 
 private val Context.dataStore by preferencesDataStore("settings")
@@ -35,6 +39,8 @@ class SettingsStore(private val ctx: Context) {
         val skipBack = intPreferencesKey("skipBack")
         val skipForward = intPreferencesKey("skipForward")
         val keepScreenOn = booleanPreferencesKey("keepScreenOn")
+        val pageMode = booleanPreferencesKey("pageMode")
+        val brightness = floatPreferencesKey("brightness")
     }
 
     val flow: Flow<AppSettings> = ctx.dataStore.data.map { it.toSettings() }
@@ -50,6 +56,8 @@ class SettingsStore(private val ctx: Context) {
             prefs[K.skipBack] = s.skipBackSec
             prefs[K.skipForward] = s.skipForwardSec
             prefs[K.keepScreenOn] = s.keepScreenOn
+            prefs[K.pageMode] = s.pageMode
+            prefs[K.brightness] = s.brightness
         }
     }
 
@@ -64,6 +72,8 @@ class SettingsStore(private val ctx: Context) {
             skipBackSec = this[K.skipBack] ?: d.skipBackSec,
             skipForwardSec = this[K.skipForward] ?: d.skipForwardSec,
             keepScreenOn = this[K.keepScreenOn] ?: d.keepScreenOn,
+            pageMode = this[K.pageMode] ?: d.pageMode,
+            brightness = this[K.brightness] ?: d.brightness,
         )
     }
 }
