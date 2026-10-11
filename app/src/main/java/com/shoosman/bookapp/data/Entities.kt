@@ -1,0 +1,92 @@
+package com.shoosman.bookapp.data
+
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+object BookStatus {
+    const val WANT = 0
+    const val READING = 1
+    const val FINISHED = 2
+    const val DROPPED = 3
+
+    /** Порядок полок в интерфейсе. */
+    val ordered = listOf(READING, WANT, FINISHED, DROPPED)
+
+    fun label(status: Int): String = when (status) {
+        WANT -> "Хочу прочитать"
+        READING -> "Читаю"
+        FINISHED -> "Прочитано"
+        DROPPED -> "Брошено"
+        else -> ""
+    }
+}
+
+@Entity(tableName = "books")
+data class BookEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val author: String,
+    val annotation: String = "",
+    /** Папка книги во внутренней памяти приложения. */
+    val dir: String,
+    val coverPath: String? = null,
+    /** Разобранный текст (content.bin) или null, если текста нет. */
+    val textPath: String? = null,
+    val textFormat: String? = null,
+    val totalChars: Int = 0,
+    val chapterCount: Int = 0,
+    val status: Int = BookStatus.WANT,
+    val rating: Int = 0,
+    /** Позиция чтения: смещение в символах от начала книги. */
+    val readPos: Int = 0,
+    val audioTrack: Int = 0,
+    val audioPosMs: Long = 0,
+    /** Позиция в аудио от начала всей книги. */
+    val audioGlobalMs: Long = 0,
+    val audioTotalMs: Long = 0,
+    val speed: Float = 1f,
+    val addedAt: Long = System.currentTimeMillis(),
+    val lastOpenedAt: Long = 0,
+    val finishedAt: Long = 0,
+)
+
+val BookEntity.hasText: Boolean get() = textPath != null
+val BookEntity.hasAudio: Boolean get() = audioTotalMs > 0
+val BookEntity.textProgress: Float
+    get() = if (totalChars > 0) (readPos.toFloat() / totalChars).coerceIn(0f, 1f) else 0f
+val BookEntity.audioProgress: Float
+    get() = if (audioTotalMs > 0) (audioGlobalMs.toFloat() / audioTotalMs).coerceIn(0f, 1f) else 0f
+val BookEntity.progress: Float get() = maxOf(textProgress, audioProgress)
+
+@Entity(tableName = "tracks", indices = [Index("bookId")])
+data class TrackEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: Long,
+    val idx: Int,
+    val uri: String,
+    val title: String,
+    val durationMs: Long,
+)
+
+@Entity(tableName = "bookmarks", indices = [Index("bookId")])
+data class BookmarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: Long,
+    /** -1, если у книги нет текста. */
+    val charPos: Int,
+    /** -1, если у книги нет аудио. */
+    val audioMs: Long,
+    val snippet: String,
+    val note: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Точка привязки «это место в аудио = это место в тексте», которую задал пользователь. */
+@Entity(tableName = "anchors", indices = [Index("bookId")])
+data class AnchorEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookId: Long,
+    val audioMs: Long,
+    val charPos: Int,
+)

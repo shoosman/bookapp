@@ -1,0 +1,312 @@
+package com.shoosman.bookapp.player
+
+import android.content.ComponentName
+import android.content.Context
+import android.net.Uri
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import com.shoosman.bookapp.data.BookRepository
+import com.shoosman.bookapp.data.TrackEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.File
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+data class PlayerUi(
+    val bookId: Long = -1,
+    val title: String = "",
+    val author: String = "",
+    val coverPath: String? = null,
+    val isPlaying: Boolean = false,
+    val track: Int = 0,
+    val trackCount: Int = 0,
+    val trackTitle: String = "",
+    val posMs: Long = 0,
+    val durMs: Long = 0,
+    val globalMs: Long = 0,
+    val totalMs: Long = 0,
+    val speed: Float = 1f,
+    val sleepLeftMs: Long = 0,
+    val sleepEndOfTrack: Boolean = false,
+)
+
+/** Связь интерфейса с фоновым плеером. Живёт всё время работы приложения. */
+class PlayerConnection(private val app: Context, private val repo: BookRepository) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var controller: MediaController? = null
+    private var future: ListenableFuture<MediaController>? = null
+    private var tickerJob: Job? = null
+    private var sleepJob: Job? = null
+    private var lastSave = 0L
+
+    private var tracks: List<TrackEntity> = emptyList()
+    private var starts: LongArray = LongArray(0)
+
+    private val _ui = MutableStateFlow(PlayerUi())
+    val ui: StateFlow<PlayerUi> = _ui.asStateFlow()
+
+    private val listener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            refresh()
+            if (!isPlaying) save(force = true)
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (_ui.value.sleepEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                controller?.pause()
+                cancelSleep()
+            }
+            refresh()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            refresh()
+        }
+    }
+
+    /** Подключиться к сервису; если он уже что-то играет — подхватить книгу. */
+    fun connect() {
+        scope.launch { runCatching { ctrl() } }
+    }
+
+    private suspend fun ctrl(): MediaController {
+        controller?.let { return it }
+        val f = future ?: MediaController.Builder(
+            app, SessionToken(app, ComponentName(app, PlaybackService::class.java)),
+        ).buildAsync().also { future = it }
+        val c = try {
+            suspendCancellableCoroutine<MediaController> { cont ->
+                f.addListener({
+                    try {
+                        cont.resume(f.get())
+                    } catch (e: Exception) {
+                        cont.resumeWithException(e)
+                    }
+                }, ContextCompat.getMainExecutor(app))
+            }
+        } catch (e: Exception) {
+            future = null
+            throw e
+        }
+        if (controller == null) {
+            controller = c
+            c.addListener(listener)
+            restoreFromController(c)
+            startTicker()
+        }
+        return controller!!
+    }
+
+    private suspend fun restoreFromController(c: MediaController) {
+        val mediaId = c.currentMediaItem?.mediaId ?: return
+        val bookId = mediaId.substringBefore(':').toLongOrNull() ?: return
+        val book = repo.book(bookId) ?: return
+        val tr = repo.tracks(bookId)
+        if (tr.size != c.mediaItemCount) return
+        setTracks(tr)
+        _ui.value = PlayerUi(
+            bookId = bookId, title = book.title, author = book.author, coverPath = book.coverPath,
+            trackCount = tr.size, totalMs = totalOf(tr), speed = c.playbackParameters.speed,
+        )
+        refresh()
+    }
+
+    private fun setTracks(tr: List<TrackEntity>) {
+        tracks = tr
+        starts = LongArray(tr.size)
+        for (i in 1 until tr.size) starts[i] = starts[i - 1] + tr[i - 1].durationMs
+    }
+
+    private fun totalOf(tr: List<TrackEntity>) = tr.sumOf { it.durationMs }
+
+    /**
+     * Загрузить книгу в плеер.
+     * @param startGlobalMs позиция от начала книги; null — продолжить с сохранённого места.
+     */
+    suspend fun open(bookId: Long, startGlobalMs: Long? = null, play: Boolean = false) {
+        val book = repo.book(bookId) ?: return
+        val tr = repo.tracks(bookId)
+        if (tr.isEmpty()) return
+        val c = ctrl()
+        if (_ui.value.bookId != bookId || c.mediaItemCount != tr.size) {
+            save(force = true)
+            setTracks(tr)
+            val artwork = book.coverPath?.let { Uri.fromFile(File(it)) }
+            val items = tr.map { t ->
+                MediaItem.Builder()
+                    .setMediaId("$bookId:${t.idx}")
+                    .setUri(Uri.parse(t.uri))
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(t.title)
+                            .setArtist(book.author)
+                            .setAlbumTitle(book.title)
+                            .setArtworkUri(artwork)
+                            .build(),
+                    )
+                    .build()
+            }
+            val (index, pos) = if (startGlobalMs != null) {
+                locate(startGlobalMs)
+            } else {
+                book.audioTrack.coerceIn(0, tr.size - 1) to book.audioPosMs
+            }
+            c.setMediaItems(items, index, pos)
+            c.prepare()
+            c.setPlaybackSpeed(book.speed)
+            _ui.value = PlayerUi(
+                bookId = bookId, title = book.title, author = book.author, coverPath = book.coverPath,
+                trackCount = tr.size, totalMs = totalOf(tr), speed = book.speed,
+                sleepLeftMs = _ui.value.sleepLeftMs, sleepEndOfTrack = _ui.value.sleepEndOfTrack,
+            )
+        } else if (startGlobalMs != null) {
+            seekGlobal(startGlobalMs)
+        }
+        if (play) c.play()
+        repo.markOpened(bookId)
+        refresh()
+    }
+
+    private fun locate(globalMs: Long): Pair<Int, Long> {
+        if (starts.isEmpty()) return 0 to 0L
+        var i = starts.indexOfLast { it <= globalMs }
+        if (i < 0) i = 0
+        return i to (globalMs - starts[i]).coerceAtLeast(0)
+    }
+
+    fun toggle() {
+        val c = controller ?: return
+        if (c.isPlaying) c.pause() else c.play()
+    }
+
+    fun play() { controller?.play() }
+    fun pause() { controller?.pause() }
+
+    fun seekGlobal(globalMs: Long) {
+        val c = controller ?: return
+        val total = _ui.value.totalMs
+        val target = if (total > 0) globalMs.coerceIn(0, total - 500) else globalMs.coerceAtLeast(0)
+        val (i, pos) = locate(target)
+        c.seekTo(i, pos)
+        refresh()
+    }
+
+    fun seekInTrack(posMs: Long) {
+        controller?.seekTo(posMs.coerceAtLeast(0))
+        refresh()
+    }
+
+    fun skip(deltaMs: Long) = seekGlobal(_ui.value.globalMs + deltaMs)
+
+    fun previousTrack() {
+        val c = controller ?: return
+        if (c.currentPosition > 3000 || c.currentMediaItemIndex == 0) c.seekTo(0) else c.seekToPreviousMediaItem()
+        refresh()
+    }
+
+    fun nextTrack() {
+        controller?.seekToNextMediaItem()
+        refresh()
+    }
+
+    fun setSpeed(speed: Float) {
+        val c = controller ?: return
+        c.setPlaybackSpeed(speed)
+        val id = _ui.value.bookId
+        _ui.update { it.copy(speed = speed) }
+        if (id >= 0) repo.appScope.launch { repo.setSpeed(id, speed) }
+    }
+
+    // ---------------- таймер сна ----------------
+
+    fun setSleepMinutes(minutes: Int) {
+        cancelSleep()
+        val end = SystemClock.elapsedRealtime() + minutes * 60_000L
+        sleepJob = scope.launch {
+            while (isActive) {
+                val left = end - SystemClock.elapsedRealtime()
+                _ui.update { it.copy(sleepLeftMs = left.coerceAtLeast(0)) }
+                if (left <= 0) break
+                // Последние 10 секунд плавно убавляем громкость.
+                if (left < 10_000) controller?.volume = (left / 10_000f).coerceIn(0f, 1f)
+                delay(250)
+            }
+            controller?.pause()
+            controller?.volume = 1f
+            _ui.update { it.copy(sleepLeftMs = 0) }
+            sleepJob = null
+        }
+    }
+
+    fun setSleepEndOfTrack() {
+        cancelSleep()
+        _ui.update { it.copy(sleepEndOfTrack = true) }
+    }
+
+    fun cancelSleep() {
+        sleepJob?.cancel()
+        sleepJob = null
+        controller?.volume = 1f
+        _ui.update { it.copy(sleepLeftMs = 0, sleepEndOfTrack = false) }
+    }
+
+    // ---------------- состояние ----------------
+
+    private fun startTicker() {
+        if (tickerJob != null) return
+        tickerJob = scope.launch {
+            while (isActive) {
+                refresh()
+                delay(500)
+            }
+        }
+    }
+
+    private fun refresh() {
+        val c = controller ?: return
+        if (_ui.value.bookId < 0) return
+        val idx = c.currentMediaItemIndex.coerceAtLeast(0)
+        val pos = c.currentPosition.coerceAtLeast(0)
+        val known = tracks.getOrNull(idx)?.durationMs ?: 0L
+        val dur = if (known > 0) known else c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        _ui.update {
+            it.copy(
+                isPlaying = c.isPlaying,
+                track = idx,
+                trackTitle = tracks.getOrNull(idx)?.title.orEmpty(),
+                posMs = pos,
+                durMs = dur,
+                globalMs = (starts.getOrNull(idx) ?: 0L) + pos,
+                speed = c.playbackParameters.speed,
+            )
+        }
+        if (c.isPlaying && SystemClock.elapsedRealtime() - lastSave > 5_000) save()
+    }
+
+    private fun save(force: Boolean = false) {
+        val s = _ui.value
+        if (s.bookId < 0) return
+        if (!force && SystemClock.elapsedRealtime() - lastSave < 5_000) return
+        lastSave = SystemClock.elapsedRealtime()
+        repo.appScope.launch { repo.saveAudioPos(s.bookId, s.track, s.posMs, s.globalMs) }
+    }
+}

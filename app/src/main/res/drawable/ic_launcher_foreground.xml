@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- дуга наушников -->
+    <path
+        android:pathData="M29,58 A25,25 0 0 1 79,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <!-- амбушюры -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M25,56 h8 a2,2 0 0 1 2,2 v14 a2,2 0 0 1 -2,2 h-8 a2,2 0 0 1 -2,-2 v-14 a2,2 0 0 1 2,-2 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M75,56 h8 a2,2 0 0 1 2,2 v14 a2,2 0 0 1 -2,2 h-8 a2,2 0 0 1 -2,-2 v-14 a2,2 0 0 1 2,-2 z" />
+    <!-- раскрытая книга -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39,52 C44,49.5 49,49.5 53,52 L53,76 C49,73.5 44,73.5 39,76 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55,52 C59,49.5 64,49.5 69,52 L69,76 C64,73.5 59,73.5 55,76 Z" />
+</vector>
