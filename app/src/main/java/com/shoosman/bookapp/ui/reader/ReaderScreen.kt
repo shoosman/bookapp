@@ -116,6 +116,21 @@ fun ReaderScreen(
 
     var content by remember { mutableStateOf<BookContent?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
+
+    // Переключились на текст — останавливаем аудио этой книги. Только при входе,
+    // а не при повороте экрана, чтобы не прерывать чтение под аудио.
+    var pausedOnOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(bookId) {
+        if (!pausedOnOpen) {
+            pausedOnOpen = true
+            val player = App.instance.player
+            if (player.ui.value.bookId == bookId && player.ui.value.isPlaying) {
+                CrashLog.note("Читалка: открыт текст — аудио на паузу")
+                player.pause()
+            }
+        }
+    }
+
     LaunchedEffect(bookId) {
         val b = repo.book(bookId) ?: return@LaunchedEffect
         CrashLog.note("Читалка: открыта книга $bookId (${b.textFormat})")
