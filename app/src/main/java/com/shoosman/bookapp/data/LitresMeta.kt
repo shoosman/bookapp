@@ -104,6 +104,7 @@ object LitresMeta {
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) Chrome/126.0 Mobile Safari/537.36")
             .header("Accept", "application/json")
             .build()
-        return runCatching { Http.client.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.string() else null } }.getOrNull()
+        // Ошибки сети пробрасываем — чтобы отличать «не нашлось» от «не получилось»
+        return Http.client.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.string() else null }
     }
 }

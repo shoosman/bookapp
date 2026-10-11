@@ -39,11 +39,47 @@ object CoverFinder {
         return null
     }
 
-    /** Обложка только с Author.Today (когда на Литресе книги нет). */
-    fun fromAuthorToday(title: String, author: String): Found? {
-        val surname = surname(author)
-        for (q in titleVariants(title)) runCatching { authorToday(q, surname) }.getOrNull()?.let { return it }
+    /** Обложка с Author.Today. Ошибка — только если не удалось ни одно обращение. */
+    fun fromAuthorToday(title: String, author: String): Found? = tryAll(title) { q -> authorToday(q, surname(author)) }
+
+    /** Обложка с Фантлаба (у него открытый поиск и обложки изданий). */
+    fun fromFantlab(title: String, author: String): Found? = tryAll(title) { q -> fantlab(q, surname(author)) }
+
+    private fun tryAll(title: String, block: (String) -> Found?): Found? {
+        var error: Exception? = null
+        var answered = false
+        for (q in titleVariants(title)) {
+            try {
+                block(q)?.let { return it }
+                answered = true
+            } catch (e: Exception) {
+                error = e
+            }
+        }
+        if (!answered && error != null) throw error
         return null
+    }
+
+    private fun fantlab(query: String, surname: String): Found? {
+        val url = "https://api.fantlab.ru/search-works".toHttpUrl().newBuilder()
+            .addQueryParameter("q", listOf(query, surname).filter { it.isNotBlank() }.joinToString(" "))
+            .addQueryParameter("page", "1")
+            .build()
+        val json = JSONObject(get(url.toString()) ?: return null)
+        val arr = json.optJSONArray("matches") ?: return null
+        var best: Pair<Int, JSONObject>? = null
+        for (i in 0 until arr.length()) {
+            val m = arr.optJSONObject(i) ?: continue
+            val authors = listOf("all_autor_rusname", "autor1_rusname", "autor_rusname").joinToString(" ") { m.optString(it) }
+            if (surname.isNotBlank() && !norm(authors).contains(surname)) continue
+            val pic = m.optLong("pic_edition_id").takeIf { it > 0 } ?: m.optLong("pic_edition_id_auto").takeIf { it > 0 } ?: continue
+            val score = maxOf(titleScore(query, m.optString("rusname")), titleScore(query, m.optString("name")))
+            if (score > 0 && (best == null || score > best.first)) best = score to m.put("_pic", pic)
+        }
+        val m = best?.second ?: return null
+        val pic = m.optLong("_pic")
+        val bytes = download("https://fantlab.ru/images/editions/big/$pic") ?: return null
+        return Found(bytes, "https://fantlab.ru/work${m.optLong("work_id")}", "Фантлаб")
     }
 
     /** Страница книги на Литресе, если она там есть (для «Где купить»). */

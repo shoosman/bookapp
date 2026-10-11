@@ -30,15 +30,52 @@ class Enricher(private val ctx: Context, private val repo: BookRepository) {
     private fun isCyclePlaceholder(b: BookEntity) =
         b.status == BookStatus.WANT && b.textPath == null && b.audioTotalMs == 0L && b.notes.contains("Где: ")
 
+    /** Почему у книги нет обложки — чтобы было видно: её нет нигде или помешала ошибка. */
+    class CoverStatus(val notFound: Boolean, val message: String, val at: Long)
+
+    private val statusPrefs get() = ctx.getSharedPreferences("cover_status", Context.MODE_PRIVATE)
+
+    fun coverStatus(uid: String): CoverStatus? {
+        val raw = statusPrefs.getString(uid, null) ?: return null
+        val parts = raw.split('|', limit = 3)
+        if (parts.size < 3) return null
+        return CoverStatus(parts[0] == "notfound", parts[2], parts[1].toLongOrNull() ?: 0L)
+    }
+
+    private fun setCoverStatus(uid: String, status: CoverStatus?) {
+        statusPrefs.edit().apply {
+            if (status == null) remove(uid)
+            else putString(uid, (if (status.notFound) "notfound" else "error") + "|" + status.at + "|" + status.message)
+        }.apply()
+    }
+
     /** true — что-то нашлось и сохранилось. */
     suspend fun enrichOne(bookId: Long): Boolean = withContext(Dispatchers.IO) {
         val b = repo.dao.get(bookId) ?: return@withContext false
-        val artId = LitresMeta.idFromUrl(b.sourceUrl) ?: runCatching { CoverFinder.litresId(b.title, b.author) }.getOrNull()
-        val art = artId?.let { runCatching { LitresMeta.art(it) }.getOrNull() }
+        val errors = ArrayList<String>()
+        fun <T> attempt(source: String, block: () -> T?): T? = try {
+            block()
+        } catch (e: Exception) {
+            errors.add("$source: " + com.shoosman.bookapp.ErrorText.ru(e))
+            null
+        }
+        val artId = LitresMeta.idFromUrl(b.sourceUrl) ?: attempt("Литрес") { CoverFinder.litresId(b.title, b.author) }
+        val art = artId?.let { id -> attempt("Литрес") { LitresMeta.art(id) } }
         var cover: ByteArray? = null
         if (b.coverPath == null) {
-            cover = art?.let { CoverFinder.download(it.coverUrl) }
-                ?: runCatching { CoverFinder.fromAuthorToday(b.title, b.author)?.cover }.getOrNull()
+            cover = art?.let { a ->
+                CoverFinder.download(a.coverUrl).also { if (it == null) errors.add("Литрес: обложка нашлась, но не скачалась") }
+            }
+                ?: attempt("Author.Today") { CoverFinder.fromAuthorToday(b.title, b.author)?.cover }
+                ?: attempt("Фантлаб") { CoverFinder.fromFantlab(b.title, b.author)?.cover }
+            setCoverStatus(
+                b.uid,
+                when {
+                    cover != null -> null
+                    errors.isNotEmpty() -> CoverStatus(false, errors.joinToString("\n"), System.currentTimeMillis())
+                    else -> CoverStatus(true, "Не нашлась ни на Литресе, ни на Author.Today, ни на Фантлабе.", System.currentTimeMillis())
+                },
+            )
         }
         if (art == null && cover == null) return@withContext false
 

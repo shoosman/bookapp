@@ -263,8 +263,62 @@ private fun CoversSection() {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
-        OutlinedButton(onClick = { app.enricher.run() }, modifier = Modifier.padding(top = 8.dp)) {
-            Text("Дополнить книги")
+        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { app.enricher.run() }, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Дополнить книги")
+            }
+            if (missingCovers > 0) {
+                var show by remember { mutableStateOf(false) }
+                androidx.compose.material3.TextButton(onClick = { show = true }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Почему нет обложек")
+                }
+                if (show) MissingCoversDialog(books.filter { it.coverPath == null }) { show = false }
+            }
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun MissingCoversDialog(books: List<com.shoosman.bookapp.data.BookEntity>, onDismiss: () -> Unit) {
+    val enricher = App.instance.enricher
+    val rows = books.map { it to enricher.coverStatus(it.uid) }
+    val notFound = rows.count { it.second?.notFound == true }
+    val failed = rows.count { it.second != null && it.second?.notFound == false }
+    val never = rows.count { it.second == null }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Книги без обложки: ${books.size}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Не нашлись нигде: $notFound · ошибка при поиске: $failed · ещё не искали: $never",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (failed > 0) {
+                    Text(
+                        "Ошибки обычно временные (связь, сайт недоступен) — нажмите «Дополнить книги» ещё раз.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                rows.sortedBy { (_, s) -> if (s == null) 2 else if (s.notFound) 1 else 0 }.forEach { (b, s) ->
+                    Column(Modifier.padding(vertical = 6.dp)) {
+                        Text(b.title + if (b.author.isNotBlank()) " — ${b.author}" else "", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            when {
+                                s == null -> "Ещё не искали"
+                                s.notFound -> "Не нашлась"
+                                else -> "Ошибка: " + s.message
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (s != null && !s.notFound) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
 }

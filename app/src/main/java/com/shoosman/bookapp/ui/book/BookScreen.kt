@@ -177,6 +177,7 @@ fun BookScreen(
                 item {
                     var looking by remember { mutableStateOf(false) }
                     var notFound by remember { mutableStateOf(false) }
+                    Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(
                             enabled = !looking,
@@ -189,13 +190,15 @@ fun BookScreen(
                                 }
                             },
                         ) { Text(if (looking) "Ищу обложку…" else "Найти обложку") }
-                        if (notFound) {
-                            Text(
-                                "Не нашлась на Литресе и Author.Today",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                    }
+                    val status = remember(looking, notFound) { app.enricher.coverStatus(b.uid) }
+                    if (!looking && status != null) {
+                        Text(
+                            if (status.notFound) status.message else "Не удалось найти обложку. " + status.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (status.notFound) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        )
+                    }
                     }
                 }
             }
