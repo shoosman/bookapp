@@ -29,6 +29,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,6 +84,9 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
 
             SectionTitle("Облако")
             SyncSection()
+
+            SectionTitle("Обложки")
+            CoversSection()
 
             SectionTitle("Плеер")
             Text("Перемотка назад", style = MaterialTheme.typography.bodyMedium)
@@ -224,6 +228,44 @@ private fun ChipRow(values: List<Int>, selected: Int, label: (Int) -> String, on
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         values.forEach { v ->
             FilterChip(selected = v == selected, onClick = { onSelect(v) }, label = { Text(label(v)) })
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun CoversSection() {
+    val app = App.instance
+    val books by app.repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val state by app.covers.state.collectAsStateWithLifecycle()
+    val missing = app.covers.missingCount(books)
+    val s = state
+    if (s != null && s.running) {
+        Text(
+            "Ищу обложки: ${s.done} из ${s.total} · нашлось ${s.found}",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { if (s.total > 0) s.done.toFloat() / s.total else 0f },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+    } else {
+        Text(
+            if (missing == 0) "У всех книг есть обложки." else "Без обложки: $missing. Чтец поищет их на Литресе и Author.Today по названию и автору.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (s != null) {
+            Text(
+                "В прошлый раз нашлось ${s.found} из ${s.total}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        if (missing > 0) {
+            OutlinedButton(onClick = { app.covers.findMissing() }, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Найти обложки")
+            }
         }
     }
 }

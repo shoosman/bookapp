@@ -168,6 +168,32 @@ fun BookScreen(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
         ) {
             item { Header(b, tracks.size) }
+            if (b.coverPath == null) {
+                item {
+                    var looking by remember { mutableStateOf(false) }
+                    var notFound by remember { mutableStateOf(false) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            enabled = !looking,
+                            onClick = {
+                                looking = true
+                                notFound = false
+                                scope.launch {
+                                    notFound = !app.covers.findOne(bookId)
+                                    looking = false
+                                }
+                            },
+                        ) { Text(if (looking) "Ищу обложку…" else "Найти обложку") }
+                        if (notFound) {
+                            Text(
+                                "Не нашлась на Литресе и Author.Today",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
 
             item { Column {
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))

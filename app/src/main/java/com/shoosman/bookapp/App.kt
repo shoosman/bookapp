@@ -16,6 +16,8 @@ class App : Application() {
     lateinit var db: AppDatabase
         private set
     lateinit var repo: BookRepository
+    /** Поиск недостающих обложек. */
+    val covers by lazy { com.shoosman.bookapp.data.Covers(repo) }
         private set
     lateinit var settings: SettingsStore
         private set
