@@ -17,6 +17,9 @@ data class BookDoc(
     val sourceUrl: String,
     val addedAt: Long,
     val cover: String?,
+    /** Цикл и номер в нём — часть описания книги (metaUpdatedAt). */
+    val series: String,
+    val seriesIndex: Double,
     val metaTs: Long,
     // полка
     val status: String,
@@ -54,6 +57,8 @@ data class BookDoc(
         o.put("sourceUrl", sourceUrl)
         o.put("addedAt", addedAt)
         o.put("cover", cover ?: JSONObject.NULL)
+        o.put("series", series)
+        o.put("seriesIndex", seriesIndex)
         o.put("metaUpdatedAt", metaTs)
         o.put("status", status)
         o.put("rating", rating)
@@ -124,6 +129,8 @@ data class BookDoc(
                 sourceUrl = str("sourceUrl"),
                 addedAt = o.optLong("addedAt"),
                 cover = if (o.isNull("cover")) null else o.optString("cover").ifBlank { null },
+                series = str("series"),
+                seriesIndex = (o.optDouble("seriesIndex", 0.0).takeIf { !it.isNaN() } ?: 0.0).let { Math.round(it * 100.0) / 100.0 },
                 metaTs = o.optLong("metaUpdatedAt"),
                 status = o.optString("status", "want"),
                 rating = o.optInt("rating"),
@@ -173,7 +180,7 @@ data class BookDoc(
                 title = m.title, author = m.author, annotation = m.annotation, sourceUrl = m.sourceUrl,
                 addedAt = minOf(local.addedAt.takeIf { it > 0 } ?: Long.MAX_VALUE, remote.addedAt.takeIf { it > 0 } ?: Long.MAX_VALUE)
                     .let { if (it == Long.MAX_VALUE) 0 else it },
-                cover = m.cover, metaTs = m.metaTs,
+                cover = m.cover, series = m.series, seriesIndex = m.seriesIndex, metaTs = m.metaTs,
                 status = sh.status, rating = sh.rating, notes = sh.notes, startedAt = sh.startedAt, finishedAt = sh.finishedAt,
                 shelfTs = sh.shelfTs,
                 text = tx.text, textTs = tx.textTs,

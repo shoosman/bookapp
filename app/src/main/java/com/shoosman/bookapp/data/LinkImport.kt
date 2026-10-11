@@ -17,6 +17,8 @@ data class BookInfo(
     val url: String = "",
     val coverUrl: String = "",
     val cover: ByteArray? = null,
+    val series: String = "",
+    val seriesIndex: Float = 0f,
 )
 
 /**

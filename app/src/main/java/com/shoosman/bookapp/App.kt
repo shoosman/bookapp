@@ -35,7 +35,7 @@ class App : Application() {
         CrashLog.note("Запуск приложения")
         instance = this
         db = Room.databaseBuilder(this, AppDatabase::class.java, "books.db")
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
             .build()
         repo = BookRepository(this, db)
         settings = SettingsStore(this)

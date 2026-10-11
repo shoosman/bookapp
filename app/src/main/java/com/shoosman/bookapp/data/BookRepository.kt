@@ -72,6 +72,8 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                     textFormat = parsed.format,
                     totalChars = parsed.content.totalChars,
                     chapterCount = parsed.content.chapters.size,
+                    series = seriesOf(parsed).first,
+                    seriesIndex = seriesOf(parsed).second,
                 ),
             )
         } catch (e: Throwable) {
@@ -100,6 +102,8 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                 totalChars = parsed.content.totalChars,
                 chapterCount = parsed.content.chapters.size,
                 readPos = 0,
+                series = book.series.ifBlank { seriesOf(parsed).first },
+                seriesIndex = if (book.series.isBlank()) seriesOf(parsed).second else book.seriesIndex,
                 textUpdatedAt = System.currentTimeMillis(),
             ),
         )
@@ -180,6 +184,8 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                     dir = dir.absolutePath,
                     coverPath = coverFile(dir).takeIf { it.exists() }?.absolutePath,
                     audioTotalMs = infos.sumOf { it.durationMs },
+                    series = SeriesGuess.guess(title)?.series.orEmpty(),
+                    seriesIndex = SeriesGuess.guess(title)?.index ?: 0f,
                 ),
             )
             dao.insertTracks(infos.mapIndexed { i, a -> TrackEntity(bookId = bookId, idx = i, uri = a.uri.toString(), title = a.title, durationMs = a.durationMs) })
@@ -403,7 +409,10 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         dao.update(b.copy(startedAt = startedAt, finishedAt = finishedAt, shelfUpdatedAt = System.currentTimeMillis()))
     }
 
-    suspend fun updateInfo(bookId: Long, title: String, author: String, sourceUrl: String, annotation: String) {
+    suspend fun updateInfo(
+        bookId: Long, title: String, author: String, sourceUrl: String, annotation: String,
+        series: String, seriesIndex: Float,
+    ) {
         val b = dao.get(bookId) ?: return
         dao.update(
             b.copy(
@@ -411,6 +420,8 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                 author = author.trim(),
                 sourceUrl = sourceUrl.trim(),
                 annotation = annotation.trim(),
+                series = series.trim(),
+                seriesIndex = if (series.isBlank()) 0f else seriesIndex,
                 metaUpdatedAt = System.currentTimeMillis(),
             ),
         )
@@ -430,10 +441,19 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                 dir = dir.absolutePath,
                 coverPath = coverFile(dir).takeIf { it.exists() }?.absolutePath,
                 status = status,
+                series = info.series.trim().ifBlank { SeriesGuess.guess(info.title)?.series.orEmpty() },
+                seriesIndex = if (info.series.isNotBlank()) info.seriesIndex else SeriesGuess.guess(info.title)?.index ?: 0f,
                 startedAt = if (status == BookStatus.READING || status == BookStatus.FINISHED) now else 0L,
                 finishedAt = if (status == BookStatus.FINISHED) now else 0L,
             ),
         )
+    }
+
+    /** Цикл из метаданных файла, а если их нет — из названия. */
+    private fun seriesOf(parsed: ParsedBook): Pair<String, Float> {
+        if (parsed.series.isNotBlank()) return parsed.series to parsed.seriesIndex
+        val g = SeriesGuess.guess(parsed.title) ?: return "" to 0f
+        return g.series to g.index
     }
 
     /** Новая книга по ссылке/вручную сразу с файлами. */

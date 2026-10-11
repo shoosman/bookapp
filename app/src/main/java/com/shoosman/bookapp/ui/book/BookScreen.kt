@@ -62,6 +62,7 @@ import com.shoosman.bookapp.App
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.SeriesGuess
 import com.shoosman.bookapp.data.audioProgress
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
@@ -406,6 +407,8 @@ fun BookScreen(
         var author by remember { mutableStateOf(b.author) }
         var url by remember { mutableStateOf(b.sourceUrl) }
         var annotation by remember { mutableStateOf(b.annotation) }
+        var series by remember { mutableStateOf(b.series) }
+        var seriesNo by remember { mutableStateOf(if (b.seriesIndex > 0f) SeriesGuess.format(b.seriesIndex) else "") }
         AlertDialog(
             onDismissRequest = { editing = false },
             title = { Text("О книге") },
@@ -416,6 +419,19 @@ fun BookScreen(
                 ) {
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Название") })
                     OutlinedTextField(value = author, onValueChange = { author = it }, label = { Text("Автор") })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = series, onValueChange = { series = it },
+                            label = { Text("Цикл") }, singleLine = true, modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = seriesNo, onValueChange = { seriesNo = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
+                            label = { Text("№") }, singleLine = true, modifier = Modifier.width(72.dp),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
+                            ),
+                        )
+                    }
                     OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Ссылка") }, singleLine = true)
                     OutlinedTextField(value = annotation, onValueChange = { annotation = it }, label = { Text("Аннотация") }, maxLines = 6)
                 }
@@ -423,7 +439,12 @@ fun BookScreen(
             confirmButton = {
                 TextButton(onClick = {
                     editing = false
-                    scope.launch { repo.updateInfo(bookId, title, author, url, annotation) }
+                    scope.launch {
+                        repo.updateInfo(
+                            bookId, title, author, url, annotation,
+                            series, seriesNo.replace(',', '.').toFloatOrNull() ?: 0f,
+                        )
+                    }
                 }) { Text("Сохранить") }
             },
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Отмена") } },
@@ -500,6 +521,14 @@ private fun Header(b: BookEntity, trackCount: Int) {
                     b.author,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            if (b.series.isNotBlank()) {
+                Text(
+                    b.series + if (b.seriesIndex > 0f) " · книга ${SeriesGuess.format(b.seriesIndex)}" else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }

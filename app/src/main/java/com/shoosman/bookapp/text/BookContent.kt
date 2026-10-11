@@ -147,4 +147,7 @@ class ParsedBook(
     val cover: ByteArray?,
     val format: String,
     val content: BookContent,
+    /** Цикл из метаданных файла (FB2 sequence, calibre:series) — если есть. */
+    val series: String = "",
+    val seriesIndex: Float = 0f,
 )

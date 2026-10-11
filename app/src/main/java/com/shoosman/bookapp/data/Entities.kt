@@ -66,6 +66,11 @@ data class BookEntity(
     val progressUpdatedAt: Long = 0,
     /** Книга удалена — запись остаётся, чтобы удаление дошло до других устройств. */
     val deleted: Boolean = false,
+    // --- с версии 3: циклы ---
+    /** Название цикла («Искажающие реальность»), пусто — вне цикла. */
+    val series: String = "",
+    /** Номер в цикле; 0 — неизвестен. Дробный — для частей (8.1, 8.2). */
+    val seriesIndex: Float = 0f,
 )
 
 val BookEntity.hasText: Boolean get() = textPath != null

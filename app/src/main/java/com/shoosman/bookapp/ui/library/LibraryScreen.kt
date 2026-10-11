@@ -23,10 +23,13 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,8 +57,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.shadow
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.SeriesGuess
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.data.progress
@@ -64,6 +70,38 @@ import com.shoosman.bookapp.ui.home.Importer
 import com.shoosman.bookapp.ui.home.SHELF_ALL
 
 private val sorts = listOf("Недавно открытые", "Название", "Автор", "Дата добавления", "Оценка")
+
+/** Строка списка: отдельная книга или цикл из нескольких книг. */
+private sealed interface Entry {
+    val key: String
+}
+
+private class Single(val book: BookEntity) : Entry {
+    override val key = "b${book.id}"
+}
+
+private class SeriesGroup(override val key: String, val title: String, val author: String, val books: List<BookEntity>) : Entry
+
+private fun surnameKey(author: String): String =
+    author.substringBefore(',').substringBefore(" и др").trim().lowercase().replace('ё', 'е').split(' ', '.').lastOrNull { it.isNotBlank() }.orEmpty()
+
+/** Книги одного цикла (и одного автора) собираются в группу на месте первой из них. */
+private fun groupSeries(list: List<BookEntity>): List<Entry> {
+    val byKey = list.filter { it.series.isNotBlank() }
+        .groupBy { SeriesGuess.key(it.series) + "|" + surnameKey(it.author) }
+    val placed = HashSet<String>()
+    val out = ArrayList<Entry>()
+    for (b in list) {
+        if (b.series.isBlank()) { out.add(Single(b)); continue }
+        val k = SeriesGuess.key(b.series) + "|" + surnameKey(b.author)
+        val members = byKey[k].orEmpty()
+        if (members.size < 2) { out.add(Single(b)); continue }
+        if (!placed.add(k)) continue
+        val sorted = members.sortedWith(compareBy<BookEntity>({ if (it.seriesIndex > 0f) it.seriesIndex else Float.MAX_VALUE }, { it.title.lowercase() }))
+        out.add(SeriesGroup("s$k", b.series, b.author, sorted))
+    }
+    return out
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +116,8 @@ fun LibraryTab(
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
+    var grouped by rememberSaveable { mutableStateOf(true) }
+    var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     Scaffold(
         topBar = {
@@ -115,6 +155,11 @@ fun LibraryTab(
                                     onClick = { sort = i; sortMenu = false },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = { Text("Циклы вместе") },
+                                leadingIcon = { Checkbox(checked = grouped, onCheckedChange = null) },
+                                onClick = { grouped = !grouped; sortMenu = false },
+                            )
                         }
                     }
                 },
@@ -150,7 +195,10 @@ fun LibraryTab(
             val q = query.trim().lowercase()
             val shown = all
                 .filter { shelf == SHELF_ALL || it.status == shelf }
-                .filter { q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) }
+                .filter {
+                    q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
+                        it.series.lowercase().contains(q)
+                }
                 .let { list ->
                     when (sort) {
                         1 -> list.sortedBy { it.title.lowercase() }
@@ -175,8 +223,26 @@ fun LibraryTab(
                     )
                 }
             } else {
+                val entries = if (grouped) groupSeries(shown) else shown.map { Single(it) }
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-                    items(shown, key = { it.id }) { book -> BookRow(book) { onOpenBook(book.id) } }
+                    for (e in entries) {
+                        when (e) {
+                            is Single -> item(key = e.key) { BookRow(e.book, showSeries = true) { onOpenBook(e.book.id) } }
+                            is SeriesGroup -> {
+                                val open = q.isNotEmpty() || e.key in expanded
+                                item(key = e.key) {
+                                    SeriesRow(e, open) {
+                                        expanded = if (e.key in expanded) expanded - e.key else expanded + e.key
+                                    }
+                                }
+                                if (open) {
+                                    items(e.books, key = { "${e.key}/${it.id}" }) { book ->
+                                        BookRow(book, showSeries = false, nested = true) { onOpenBook(book.id) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -184,19 +250,101 @@ fun LibraryTab(
 }
 
 @Composable
-private fun BookRow(book: BookEntity, onClick: () -> Unit) {
+private fun SeriesRow(group: SeriesGroup, open: Boolean, onToggle: () -> Unit) {
+    val finished = group.books.count { it.status == BookStatus.FINISHED }
+    val reading = group.books.any { it.status == BookStatus.READING }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Стопка обложек: первая книга цикла сверху
+        Box(Modifier.size(64.dp, 84.dp)) {
+            group.books.getOrNull(2)?.let { Cover(it.title, it.author, it.coverPath, Modifier.size(50.dp, 72.dp).offset(14.dp, 0.dp)) }
+            group.books.getOrNull(1)?.let { Cover(it.title, it.author, it.coverPath, Modifier.size(52.dp, 76.dp).offset(7.dp, 4.dp)) }
+            val first = group.books.first()
+            Cover(first.title, first.author, first.coverPath, Modifier.offset(0.dp, 4.dp).shadow(3.dp).size(56.dp, 80.dp))
+        }
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Text(group.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (group.author.isNotBlank()) {
+                Text(
+                    group.author,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val n = group.books.size
+            Text(
+                "Цикл · $n ${plural(n, "книга", "книги", "книг")}" +
+                    (if (finished in 1 until n) " · прочитано $finished" else if (finished == n) " · всё прочитано" else "") +
+                    (if (reading) " · читаю" else ""),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        Icon(
+            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            if (open) "Свернуть" else "Развернуть",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun plural(n: Int, one: String, few: String, many: String): String {
+    val m10 = n % 10
+    val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> one
+        m10 in 2..4 && m100 !in 12..14 -> few
+        else -> many
+    }
+}
+
+@Composable
+private fun BookRow(book: BookEntity, showSeries: Boolean, nested: Boolean = false, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(start = if (nested) 12.dp else 16.dp, end = 16.dp, top = if (nested) 6.dp else 10.dp, bottom = if (nested) 6.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Cover(book.title, book.author, book.coverPath, Modifier.size(56.dp, 80.dp))
+        if (nested) {
+            Text(
+                if (book.seriesIndex > 0f) SeriesGuess.format(book.seriesIndex) else "·",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                modifier = Modifier.width(28.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+        }
+        Cover(book.title, book.author, book.coverPath, if (nested) Modifier.size(44.dp, 64.dp) else Modifier.size(56.dp, 80.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (book.author.isNotBlank()) {
+            Text(
+                book.title,
+                style = if (nested) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (showSeries && book.series.isNotBlank()) {
+                Text(
+                    book.series + if (book.seriesIndex > 0f) " · ${SeriesGuess.format(book.seriesIndex)}" else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (book.author.isNotBlank() && !nested) {
                 Text(
                     book.author,
                     style = MaterialTheme.typography.bodyMedium,

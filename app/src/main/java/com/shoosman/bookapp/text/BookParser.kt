@@ -39,6 +39,8 @@ object BookParser {
             cover = book.cover,
             format = book.format,
             content = book.content,
+            series = book.series,
+            seriesIndex = book.seriesIndex,
         )
     }
 

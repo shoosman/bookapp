@@ -25,6 +25,8 @@ object Fb2Parser {
         val annotation = StringBuilder()
         var coverId: String? = null
         var coverBytes: ByteArray? = null
+        var series = ""
+        var seriesIndex = 0f
 
         var inTitleInfo = false
         var inBody = false
@@ -45,6 +47,10 @@ object Fb2Parser {
                         stack.add(name)
                         when (name) {
                             "title-info" -> inTitleInfo = true
+                            "sequence" -> if (inTitleInfo && series.isEmpty()) {
+                                series = parser.getAttributeValue(null, "name")?.trim().orEmpty()
+                                seriesIndex = parser.getAttributeValue(null, "number")?.trim()?.replace(',', '.')?.toFloatOrNull() ?: 0f
+                            }
                             "body" -> {
                                 inBody = true
                                 val bodyName = parser.getAttributeValue(null, "name")
@@ -147,6 +153,8 @@ object Fb2Parser {
             cover = coverBytes,
             format = "FB2",
             content = builder.build(),
+            series = series,
+            seriesIndex = seriesIndex,
         )
     }
 

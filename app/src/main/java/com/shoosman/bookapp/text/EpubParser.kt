@@ -41,6 +41,17 @@ object EpubParser {
         val description = byTag("dc:description", "description").firstOrNull()
             ?.let { Jsoup.parse(it.text()).text() }.orEmpty()
 
+        val metas = byTag("meta", "opf:meta")
+        val calibreSeries = metas.firstOrNull { it.attr("name") == "calibre:series" }?.attr("content")?.trim()
+        val collection = metas.firstOrNull { it.attr("property") == "belongs-to-collection" }
+        val series = calibreSeries?.takeIf { it.isNotEmpty() } ?: collection?.text()?.trim().orEmpty()
+        val seriesIndex = (
+            metas.firstOrNull { it.attr("name") == "calibre:series_index" }?.attr("content")
+                ?: collection?.attr("id")?.takeIf { it.isNotEmpty() }?.let { id ->
+                    metas.firstOrNull { it.attr("property") == "group-position" && it.attr("refines") == "#$id" }?.text()
+                }
+            )?.trim()?.toFloatOrNull() ?: 0f
+
         val items = LinkedHashMap<String, Item>()
         for (el in byTag("item", "opf:item")) {
             val id = el.attr("id")
@@ -104,7 +115,7 @@ object EpubParser {
             HtmlWalker(builder, anchors, headingsMakeChapters = toc.isEmpty()).walk(doc.body())
         }
 
-        ParsedBook(title, author, description, cover, "EPUB", builder.build())
+        ParsedBook(title, author, description, cover, "EPUB", builder.build(), series, seriesIndex)
     }
 
     /** Склеивает относительный путь внутри архива и раскодирует %20 и подобное. */

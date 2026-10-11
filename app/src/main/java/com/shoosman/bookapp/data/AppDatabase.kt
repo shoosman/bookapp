@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BookEntity::class, TrackEntity::class, BookmarkEntity::class, AnchorEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +37,14 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE anchors ADD COLUMN uid TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE anchors ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE anchors SET uid = " + UUID_SQL)
+            }
+        }
+
+        /** Версия 3: циклы книг. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE books ADD COLUMN series TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE books ADD COLUMN seriesIndex REAL NOT NULL DEFAULT 0")
             }
         }
 
