@@ -49,6 +49,23 @@ data class BookEntity(
     val addedAt: Long = System.currentTimeMillis(),
     val lastOpenedAt: Long = 0,
     val finishedAt: Long = 0,
+    // --- с версии 2: список прочитанного и синхронизация ---
+    /** Постоянный id книги для синхронизации между устройствами. */
+    val uid: String = java.util.UUID.randomUUID().toString(),
+    val notes: String = "",
+    val startedAt: Long = 0,
+    /** Ссылка на страницу книги (Литрес, LiveLib…). */
+    val sourceUrl: String = "",
+    /** Когда менялись описание книги: название, автор, аннотация, ссылка, обложка. */
+    val metaUpdatedAt: Long = System.currentTimeMillis(),
+    /** Когда менялись полка, оценка, заметки, даты. */
+    val shelfUpdatedAt: Long = System.currentTimeMillis(),
+    /** Когда добавляли, заменяли или удаляли текст книги. */
+    val textUpdatedAt: Long = System.currentTimeMillis(),
+    /** Когда менялся прогресс чтения/прослушивания. */
+    val progressUpdatedAt: Long = 0,
+    /** Книга удалена — запись остаётся, чтобы удаление дошло до других устройств. */
+    val deleted: Boolean = false,
 )
 
 val BookEntity.hasText: Boolean get() = textPath != null
@@ -80,6 +97,8 @@ data class BookmarkEntity(
     val snippet: String,
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
+    val uid: String = java.util.UUID.randomUUID().toString(),
+    val deleted: Boolean = false,
 )
 
 /** Точка привязки «это место в аудио = это место в тексте», которую задал пользователь. */
@@ -89,4 +108,6 @@ data class AnchorEntity(
     val bookId: Long,
     val audioMs: Long,
     val charPos: Int,
+    val uid: String = java.util.UUID.randomUUID().toString(),
+    val deleted: Boolean = false,
 )

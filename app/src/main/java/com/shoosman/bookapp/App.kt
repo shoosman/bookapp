@@ -29,7 +29,9 @@ class App : Application() {
         CrashLog.install(this)
         CrashLog.note("Запуск приложения")
         instance = this
-        db = Room.databaseBuilder(this, AppDatabase::class.java, "books.db").build()
+        db = Room.databaseBuilder(this, AppDatabase::class.java, "books.db")
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .build()
         repo = BookRepository(this, db)
         settings = SettingsStore(this)
         player = PlayerConnection(this, repo)
