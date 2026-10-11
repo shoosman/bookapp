@@ -48,8 +48,17 @@ private val Dark = darkColorScheme(
     secondaryContainer = Color(0xFF5C3F20),
     background = Color(0xFF121212),
     surface = Color(0xFF121212),
-    onBackground = Color(0xFFD6D2CC),
-    onSurface = Color(0xFFD6D2CC),
+    onBackground = Color(0xFFE6E1DA),
+    onSurface = Color(0xFFE6E1DA),
+    surfaceVariant = Color(0xFF2C2A27),
+    onSurfaceVariant = Color(0xFFBDB6AC),
+    outline = Color(0xFF8C857B),
+    outlineVariant = Color(0xFF45413C),
+    surfaceContainerLowest = Color(0xFF0E0E0E),
+    surfaceContainerLow = Color(0xFF1A1918),
+    surfaceContainer = Color(0xFF1F1E1C),
+    surfaceContainerHigh = Color(0xFF292826),
+    surfaceContainerHighest = Color(0xFF343230),
 )
 
 @Composable
@@ -60,7 +69,14 @@ fun AppTheme(theme: String, content: @Composable () -> Unit) {
         "dark" -> Dark
         else -> if (isSystemInDarkTheme()) Dark else Light
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = scheme) {
+        // Цвет текста и иконок по умолчанию — под фон темы. Без этого экраны без Scaffold/Surface
+        // (плеер, читалка) рисовали иконки чёрным, и в тёмной теме их не было видно.
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides scheme.onBackground,
+            content = content,
+        )
+    }
 }
 
 fun isDarkTheme(theme: String, systemDark: Boolean) = theme == "dark" || (theme == "system" && systemDark)
