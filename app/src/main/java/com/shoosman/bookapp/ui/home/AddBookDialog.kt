@@ -1,5 +1,8 @@
 package com.shoosman.bookapp.ui.home
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,9 +22,16 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -46,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.documentfile.provider.DocumentFile
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -56,14 +69,32 @@ import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.data.BookInfo
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.Downloader
 import com.shoosman.bookapp.data.LinkImport
 import kotlinx.coroutines.launch
+import org.jsoup.UnsupportedMimeTypeException
 
-/** Новая книга без файлов: по ссылке (данные подтягиваются со страницы) или вручную. */
+/** Файлы, прикреплённые в окне «Новая книга». */
+class AttachedFiles(val text: Uri?, val audio: List<Uri>, val audioTree: Uri?) {
+    val isEmpty get() = text == null && audio.isEmpty() && audioTree == null
+}
+
+/**
+ * Новая книга: по ссылке (данные подтягиваются со страницы) или вручную, с файлами или без.
+ * Прямая ссылка на файл скачивается, страницу магазина можно открыть во встроенном браузере.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -> Unit) {
+fun AddBookDialog(
+    initialText: String?,
+    onDismiss: () -> Unit,
+    onSaved: (Long) -> Unit,
+    onSaveWithFiles: (BookInfo, Int, AttachedFiles) -> Unit,
+    onDownload: (url: String, status: Int) -> Unit,
+    onOpenBrowser: (url: String) -> Unit,
+) {
     val repo = App.instance.repo
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
@@ -76,9 +107,26 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var fileLink by remember { mutableStateOf(false) }
+
+    var textUri by remember { mutableStateOf<Uri?>(null) }
+    var audioUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var audioTree by remember { mutableStateOf<Uri?>(null) }
+    val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if (it != null) textUri = it }
+    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+        if (it.isNotEmpty()) { audioUris = it; audioTree = null }
+    }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
+        if (it != null) { audioTree = it; audioUris = emptyList() }
+    }
+    val files = AttachedFiles(textUri, audioUris, audioTree)
 
     fun load() {
         if (link.isBlank() || loading) return
+        if (Downloader.looksLikeFile(link)) {
+            fileLink = true
+            return
+        }
         loading = true
         error = null
         CrashLog.note("Добавление по ссылке: $link")
@@ -93,6 +141,11 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
                 }
                 .onFailure {
                     CrashLog.note("Ссылка не разобралась: ${it.javaClass.simpleName} ${it.message}")
+                    if (it is UnsupportedMimeTypeException) {
+                        fileLink = true
+                        loading = false
+                        return@launch
+                    }
                     error = it.message?.takeIf { m -> m.length < 200 } ?: "Не удалось открыть страницу. Проверьте ссылку или заполните поля вручную."
                 }
             loading = false
@@ -116,9 +169,17 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Закрыть") } },
                     actions = {
                         TextButton(
-                            enabled = title.isNotBlank() && !saving,
+                            enabled = (title.isNotBlank() || !files.isEmpty) && !saving,
                             onClick = {
                                 saving = true
+                                if (!files.isEmpty) {
+                                    onSaveWithFiles(
+                                        BookInfo(title = title, author = author, annotation = annotation, url = link, cover = cover),
+                                        status,
+                                        files,
+                                    )
+                                    return@TextButton
+                                }
                                 scope.launch {
                                     val id = repo.createManual(
                                         BookInfo(title = title, author = author, annotation = annotation, url = link, cover = cover),
@@ -150,7 +211,7 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
                 )
                 OutlinedTextField(
                     value = link,
-                    onValueChange = { link = it },
+                    onValueChange = { link = it; fileLink = false },
                     label = { Text("Ссылка") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
@@ -167,6 +228,23 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
                     modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (fileLink) {
+                    Text(
+                        "Это ссылка на файл. Его можно скачать и сразу добавить книгой.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = { onDownload(link.trim(), status) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Download, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Скачать и добавить")
+                    }
+                } else if (link.isNotBlank()) {
+                    TextButton(onClick = { onOpenBrowser(link.trim()) }) {
+                        Icon(Icons.Filled.Public, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Открыть во встроенном браузере, чтобы скачать")
+                    }
+                }
 
                 Row(verticalAlignment = Alignment.Top) {
                     val c = cover
@@ -201,8 +279,37 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
                         FilterChip(selected = status == s, onClick = { status = s }, label = { Text(BookStatus.label(s)) })
                     }
                 }
+                Text("Файлы", style = MaterialTheme.typography.titleSmall)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { pickText.launch(arrayOf("*/*")) },
+                        label = { Text("Текст") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) },
+                    )
+                    AssistChip(
+                        onClick = { pickAudio.launch(arrayOf("audio/*")) },
+                        label = { Text("Аудио — файлы") },
+                        leadingIcon = { Icon(Icons.Filled.AudioFile, null, Modifier.size(18.dp)) },
+                    )
+                    AssistChip(
+                        onClick = { pickFolder.launch(null) },
+                        label = { Text("Аудио — папка") },
+                        leadingIcon = { Icon(Icons.Filled.Folder, null, Modifier.size(18.dp)) },
+                    )
+                }
+                textUri?.let { u ->
+                    FileChip("Текст: " + repo.displayName(u)) { textUri = null }
+                }
+                if (audioUris.isNotEmpty()) {
+                    val first = repo.displayName(audioUris.first())
+                    FileChip(if (audioUris.size == 1) "Аудио: $first" else "Аудио: ${audioUris.size} файлов, начиная с $first") { audioUris = emptyList() }
+                }
+                audioTree?.let { t ->
+                    FileChip("Папка: " + (DocumentFile.fromTreeUri(ctx, t)?.name ?: "аудио")) { audioTree = null }
+                }
                 Text(
-                    "Файлы книги можно будет прикрепить позже на её странице.",
+                    if (files.isEmpty) "Необязательно: файлы можно прикрепить и позже на странице книги."
+                    else "Файлы перенесутся в приложение, оригиналы удалятся с телефона.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -210,4 +317,15 @@ fun AddBookDialog(initialText: String?, onDismiss: () -> Unit, onSaved: (Long) -
             }
         }
     }
+}
+
+@Composable
+private fun FileChip(text: String, onRemove: () -> Unit) {
+    InputChip(
+        selected = true,
+        onClick = onRemove,
+        label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        trailingIcon = { Icon(Icons.Filled.Close, "Убрать", Modifier.size(18.dp)) },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

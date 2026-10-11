@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -22,9 +23,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.Downloader
 import com.shoosman.bookapp.data.ImportProgress
 import com.shoosman.bookapp.data.ImportResult
 import com.shoosman.bookapp.data.OnProgress
@@ -53,8 +57,9 @@ class Importer {
 /** Выбор файлов, окно «Добавить книгу» и ошибки импорта. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
+fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: (String?) -> Unit) {
     val repo = App.instance.repo
+    val ctx = LocalContext.current.applicationContext
 
     fun startImport(block: suspend (OnProgress) -> ImportResult) {
         importer.busy = true
@@ -106,6 +111,12 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
                 modifier = Modifier.clickable { importer.sheet = false; importer.manual = "" },
             )
             ListItem(
+                headlineContent = { Text("Скачать из магазина") },
+                supportingContent = { Text("Встроенный браузер: входите на сайт, нажимаете «Скачать» — книга в Чтеце") },
+                leadingContent = { Icon(Icons.Filled.Public, null) },
+                modifier = Modifier.clickable { importer.sheet = false; onOpenBrowser(null) },
+            )
+            ListItem(
                 headlineContent = { Text("Аудиокнига — файлы") },
                 supportingContent = { Text("Выберите один или несколько файлов") },
                 leadingContent = { Icon(Icons.Filled.AudioFile, null) },
@@ -134,6 +145,23 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
             onSaved = { id ->
                 importer.manual = null
                 onOpenBook(id)
+            },
+            onSaveWithFiles = { info, status, files ->
+                importer.manual = null
+                startImport { p -> repo.createWithFiles(info, status, files.text, files.audio, files.audioTree, p) }
+            },
+            onDownload = { url, status ->
+                importer.manual = null
+                startImport { p ->
+                    val d = Downloader.download(ctx, url, onProgress = p)
+                    repo.importDownloaded(d.file, d.name, d.mime, null, p).also {
+                        if (status != BookStatus.WANT) repo.setStatus(it.bookId, status)
+                    }
+                }
+            },
+            onOpenBrowser = { url ->
+                importer.manual = null
+                onOpenBrowser(url)
             },
         )
     }

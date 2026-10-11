@@ -27,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.ui.book.BookScreen
+import com.shoosman.bookapp.ui.browser.BrowserScreen
 import com.shoosman.bookapp.ui.home.MainScreen
 import com.shoosman.bookapp.ui.player.PlayerScreen
 import com.shoosman.bookapp.ui.reader.ReaderScreen
@@ -114,6 +115,17 @@ private fun AppNav(settings: AppSettings) {
                 onOpenBook = { nav.navigate("book/$it") },
                 onRead = { nav.navigate("reader/$it") },
                 onListen = { nav.navigate("player/$it") },
+                onOpenBrowser = { url -> nav.navigate("browser?url=" + android.net.Uri.encode(url.orEmpty())) },
+            )
+        }
+        composable(
+            "browser?url={url}",
+            arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" }),
+        ) { entry ->
+            BrowserScreen(
+                startUrl = entry.arguments?.getString("url")?.takeIf { it.isNotBlank() },
+                onBack = { nav.popBackStack() },
+                onOpenBook = { nav.navigate("book/$it") },
             )
         }
         composable("book/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->

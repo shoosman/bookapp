@@ -281,7 +281,17 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
     private fun deleteOriginals(sources: List<Uri>, tree: Uri?, isAudio: Boolean): String? {
         var failed = 0
         for (uri in sources) {
-            val ok = runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, uri) }.getOrDefault(false)
+            val ok = if (uri.scheme == "file") {
+                // Наш собственный временный файл (скачанное) — просто удаляем.
+                runCatching {
+                    val f = File(uri.path!!)
+                    f.delete()
+                    f.parentFile?.takeIf { it.list()?.isEmpty() == true }?.delete()
+                }
+                true
+            } else {
+                runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, uri) }.getOrDefault(false)
+            }
             if (!ok) failed++
         }
         if (tree != null) runCatching { removeEmptyFolders(DocumentFile.fromTreeUri(ctx, tree)) }
@@ -425,6 +435,114 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
             ),
         )
     }
+
+    /** Новая книга по ссылке/вручную сразу с файлами. */
+    suspend fun createWithFiles(
+        info: BookInfo,
+        status: Int,
+        text: Uri?,
+        audio: List<Uri>,
+        audioTree: Uri?,
+        onProgress: OnProgress,
+    ): ImportResult {
+        val fallbackName = withContext(Dispatchers.IO) {
+            audioTree?.let { DocumentFile.fromTreeUri(ctx, it)?.name }
+                ?: audio.firstOrNull()?.let { displayName(it).substringBeforeLast('.') }
+        }
+        val id = createManual(info, status)
+        val notices = ArrayList<String>()
+        if (text != null) attachText(id, text, onProgress)?.let { notices.add(it) }
+        when {
+            audioTree != null -> attachAudioTree(id, audioTree, onProgress)?.let { notices.add(it) }
+            audio.isNotEmpty() -> attachAudio(id, audio, onProgress)?.let { notices.add(it) }
+        }
+        // Название, введённое вручную или со страницы, важнее названия из файла.
+        withContext(Dispatchers.IO) {
+            val b = dao.get(id) ?: return@withContext
+            val title = info.title.trim().ifBlank {
+                b.title.takeIf { it != "Без названия" } ?: fallbackName ?: b.title
+            }
+            if (title != b.title) dao.update(b.copy(title = title, metaUpdatedAt = System.currentTimeMillis()))
+        }
+        return ImportResult(id, notices.joinToString("\n\n").ifBlank { null })
+    }
+
+    enum class FileKind { TEXT, AUDIO, AUDIO_ZIP, UNKNOWN }
+
+    /** Что за файл скачали: текст книги, аудио или архив с аудио. */
+    fun kindOf(file: File, name: String, mime: String?): FileKind {
+        val n = name.lowercase()
+        val ext = n.substringAfterLast('.', "")
+        if (ext in AUDIO_EXT || mime?.startsWith("audio/") == true) return FileKind.AUDIO
+        if (ext == "zip" || mime == "application/zip") {
+            val entries = runCatching {
+                java.util.zip.ZipFile(file).use { z -> z.entries().asSequence().map { it.name.lowercase() }.toList() }
+            }.getOrDefault(emptyList())
+            val hasBook = entries.any { e -> listOf(".fb2", ".epub", ".txt", ".docx").any { e.endsWith(it) } } ||
+                "meta-inf/container.xml" in entries || "word/document.xml" in entries
+            val hasAudio = entries.any { e -> e.substringAfterLast('.', "") in AUDIO_EXT }
+            return when {
+                hasBook -> FileKind.TEXT
+                hasAudio -> FileKind.AUDIO_ZIP
+                else -> FileKind.UNKNOWN
+            }
+        }
+        if (ext in setOf("fb2", "epub", "txt", "docx", "html", "htm", "xhtml")) return FileKind.TEXT
+        return FileKind.UNKNOWN
+    }
+
+    /**
+     * Добавить скачанный файл: новой книгой или к существующей ([attachTo]).
+     * Временный файл удаляется после переноса.
+     */
+    suspend fun importDownloaded(file: File, name: String, mime: String?, attachTo: Long?, onProgress: OnProgress): ImportResult =
+        withContext(Dispatchers.IO) {
+            val uri = Uri.fromFile(file)
+            when (kindOf(file, name, mime)) {
+                FileKind.TEXT -> if (attachTo == null) {
+                    createFromText(uri, onProgress)
+                } else {
+                    ImportResult(attachTo, attachText(attachTo, uri, onProgress))
+                }
+                FileKind.AUDIO -> if (attachTo == null) {
+                    createFromAudio(listOf(uri), onProgress)
+                } else {
+                    ImportResult(attachTo, attachAudio(attachTo, listOf(uri), onProgress))
+                }
+                FileKind.AUDIO_ZIP -> {
+                    onProgress(ImportProgress("Распаковываю архив…", null))
+                    val dir = File(file.parentFile, "unzip-" + System.currentTimeMillis()).apply { mkdirs() }
+                    try {
+                        val files = ArrayList<File>()
+                        java.util.zip.ZipFile(file).use { z ->
+                            for (e in z.entries()) {
+                                val en = e.name.substringAfterLast('/')
+                                if (e.isDirectory || en.substringAfterLast('.', "").lowercase() !in AUDIO_EXT) continue
+                                val out = File(dir, en)
+                                z.getInputStream(e).use { inp -> out.outputStream().use { inp.copyTo(it) } }
+                                files.add(out)
+                            }
+                        }
+                        file.delete()
+                        val uris = sortNatural(files.map { Uri.fromFile(it) to it.name }).map { it.first }
+                        if (attachTo == null) {
+                            createAudioBookFromFiles(uris, name.substringBeforeLast('.'), onProgress)
+                        } else {
+                            ImportResult(attachTo, attachAudio(attachTo, uris, onProgress))
+                        }
+                    } finally {
+                        dir.deleteRecursively()
+                    }
+                }
+                FileKind.UNKNOWN -> {
+                    file.delete()
+                    error("Не знаю, что делать с файлом «$name». " + BookParser.unsupportedHint)
+                }
+            }
+        }
+
+    private suspend fun createAudioBookFromFiles(uris: List<Uri>, title: String, onProgress: OnProgress): ImportResult =
+        createAudioBook(uris, title, null, onProgress)
 
     /** Заменить обложку (например, из ссылки). */
     suspend fun setCover(bookId: Long, bytes: ByteArray) = withContext(Dispatchers.IO) {

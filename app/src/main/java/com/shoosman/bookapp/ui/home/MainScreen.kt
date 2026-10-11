@@ -33,6 +33,7 @@ fun MainScreen(
     onOpenBook: (Long) -> Unit,
     onRead: (Long) -> Unit,
     onListen: (Long) -> Unit,
+    onOpenBrowser: (String?) -> Unit,
 ) {
     val books by App.instance.repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = null)
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -97,5 +98,5 @@ fun MainScreen(
         }
     }
 
-    ImporterHost(importer, onOpenBook)
+    ImporterHost(importer, onOpenBook, onOpenBrowser)
 }
