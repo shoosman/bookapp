@@ -3,6 +3,9 @@ name: Build APK
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -32,9 +35,10 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "out/Chtets-0.1.${GITHUB_RUN_NUMBER}.apk"
 
       - name: Publish release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v0.1.${GITHUB_RUN_NUMBER}" out/*.apk \
             --title "Чтец 0.1.${GITHUB_RUN_NUMBER}" \
-            --notes "$(git log -1 --pretty=%B)"
+            --notes "$(git log -1 --pretty=%s)"
