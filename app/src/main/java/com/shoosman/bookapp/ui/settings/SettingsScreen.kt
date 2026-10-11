@@ -39,6 +39,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shoosman.bookapp.App
+import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.ui.common.ReportDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.mutableStateOf
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.ui.common.SectionTitle
 import kotlinx.coroutines.launch
@@ -89,6 +93,14 @@ fun SettingsScreen(settings: AppSettings, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            var report by remember { mutableStateOf<String?>(null) }
+            OutlinedButton(
+                onClick = { report = CrashLog.last() ?: "Сбоев пока не было 🎉" },
+                modifier = Modifier.padding(top = 12.dp),
+            ) { Text("Отчёт о последней ошибке") }
+            report?.let {
+                ReportDialog("Последняя ошибка", "Скопируйте и пришлите этот текст, если что-то работает не так.", it) { report = null }
+            }
             Spacer(Modifier.height(40.dp))
         }
     }

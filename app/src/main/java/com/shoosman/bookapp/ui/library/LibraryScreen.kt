@@ -65,7 +65,9 @@ import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.data.progress
+import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.ui.common.Cover
+import com.shoosman.bookapp.ui.common.ErrorDialog
 import com.shoosman.bookapp.ui.common.MiniPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,16 +91,20 @@ fun LibraryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var showAdd by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
     fun runImport(block: suspend () -> Long) {
         busy = true
+        CrashLog.note("Добавление книги")
         app.repo.appScope.launch {
             val result = runCatching { block() }
             withContext(Dispatchers.Main) {
                 busy = false
                 result.onSuccess { onOpenBook(it) }
-                    .onFailure { error = it.message ?: "Не удалось добавить книгу" }
+                    .onFailure {
+                        CrashLog.note("Ошибка добавления: ${it.javaClass.simpleName}")
+                        error = (it.message ?: "Не удалось добавить книгу") to CrashLog.describe(it, "Ошибка при добавлении книги")
+                    }
             }
         }
     }
@@ -237,13 +243,8 @@ fun LibraryScreen(
         }
     }
 
-    error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { error = null },
-            confirmButton = { TextButton(onClick = { error = null }) { Text("Понятно") } },
-            title = { Text("Не получилось") },
-            text = { Text(msg) },
-        )
+    error?.let { (msg, details) ->
+        ErrorDialog(msg, details, onDismiss = { error = null })
     }
 }
 

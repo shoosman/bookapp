@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shoosman.bookapp.App
+import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.data.AnchorEntity
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.data.BookEntity
@@ -126,6 +127,7 @@ fun ReaderScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(bookId) {
         val b = repo.book(bookId) ?: return@LaunchedEffect
+        CrashLog.note("Читалка: открыта книга $bookId (${b.textFormat})")
         try {
             content = repo.content(b) ?: run { loadError = "У этой книги нет текста"; null }
         } catch (e: Exception) {
@@ -231,6 +233,7 @@ private fun ReaderContent(
     fun listenFrom(i: Int) {
         val m = mapper ?: return
         val ms = m.msAt(c.paragraphs[i].start)
+        CrashLog.note("Читалка: слушать с абзаца $i (${fmtTime(ms)})")
         follow = true
         scope.launch { player.open(bookId, ms, play = true) }
     }
@@ -241,6 +244,7 @@ private fun ReaderContent(
             return
         }
         val ms = ps.globalMs
+        CrashLog.note("Читалка: привязка абзаца $i к ${fmtTime(ms)}")
         scope.launch {
             repo.addAnchor(bookId, ms, c.paragraphs[i].start)
             follow = true

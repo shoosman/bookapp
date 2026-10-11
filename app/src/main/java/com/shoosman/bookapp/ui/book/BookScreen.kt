@@ -62,7 +62,9 @@ import com.shoosman.bookapp.data.audioProgress
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.data.textProgress
+import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.ui.common.Cover
+import com.shoosman.bookapp.ui.common.ErrorDialog
 import com.shoosman.bookapp.ui.common.MiniPlayer
 import com.shoosman.bookapp.ui.common.SectionTitle
 import com.shoosman.bookapp.ui.common.fmtDuration
@@ -95,7 +97,7 @@ fun BookScreen(
     val scope = rememberCoroutineScope()
 
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<Pair<String, String?>?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var annotationExpanded by remember { mutableStateOf(false) }
@@ -106,7 +108,10 @@ fun BookScreen(
             val r = runCatching { block() }
             withContext(Dispatchers.Main) {
                 busy = false
-                r.onFailure { error = it.message ?: "Ошибка" }
+                r.onFailure {
+                    CrashLog.note("Ошибка: ${it.javaClass.simpleName}")
+                    error = (it.message ?: "Ошибка") to CrashLog.describe(it, "Ошибка на странице книги")
+                }
             }
         }
     }
@@ -327,13 +332,8 @@ fun BookScreen(
         )
     }
 
-    error?.let { msg ->
-        AlertDialog(
-            onDismissRequest = { error = null },
-            confirmButton = { TextButton(onClick = { error = null }) { Text("Понятно") } },
-            title = { Text("Не получилось") },
-            text = { Text(msg) },
-        )
+    error?.let { (msg, details) ->
+        ErrorDialog(msg, details, onDismiss = { error = null })
     }
 }
 

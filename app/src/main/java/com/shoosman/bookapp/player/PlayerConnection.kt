@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
+import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.data.BookRepository
 import com.shoosman.bookapp.data.TrackEntity
 import kotlinx.coroutines.CoroutineScope
@@ -146,6 +147,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         val book = repo.book(bookId) ?: return
         val tr = repo.tracks(bookId)
         if (tr.isEmpty()) return
+        CrashLog.note("Плеер: книга $bookId, файлов ${tr.size}, старт ${startGlobalMs ?: "сохранённый"}, play=$play")
         val c = ctrl()
         if (_ui.value.bookId != bookId || c.mediaItemCount != tr.size) {
             save(force = true)
@@ -195,6 +197,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     fun toggle() {
         val c = controller ?: return
+        CrashLog.note(if (c.isPlaying) "Плеер: пауза" else "Плеер: играть")
         if (c.isPlaying) c.pause() else c.play()
     }
 
@@ -230,6 +233,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     fun setSpeed(speed: Float) {
         val c = controller ?: return
+        CrashLog.note("Скорость: $speed")
         c.setPlaybackSpeed(speed)
         val id = _ui.value.bookId
         _ui.update { it.copy(speed = speed) }
@@ -239,6 +243,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
     // ---------------- таймер сна ----------------
 
     fun setSleepMinutes(minutes: Int) {
+        CrashLog.note("Таймер сна: $minutes мин")
         cancelSleep()
         val end = SystemClock.elapsedRealtime() + minutes * 60_000L
         sleepJob = scope.launch {

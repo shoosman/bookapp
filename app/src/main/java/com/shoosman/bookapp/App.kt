@@ -19,6 +19,8 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
+        CrashLog.note("Запуск приложения")
         instance = this
         db = Room.databaseBuilder(this, AppDatabase::class.java, "books.db").build()
         repo = BookRepository(this, db)

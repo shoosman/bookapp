@@ -11,7 +11,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.shoosman.bookapp.ui.common.ReportDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -46,6 +51,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 AppNav(settings)
+                var crash by remember { mutableStateOf(CrashLog.pending()) }
+                crash?.let { report ->
+                    ReportDialog(
+                        title = "Приложение вылетело",
+                        intro = "В прошлый раз Чтец закрылся с ошибкой. Скопируйте отчёт и пришлите его, чтобы ошибку исправили.",
+                        report = report,
+                        onDismiss = {
+                            CrashLog.clearPending()
+                            crash = null
+                        },
+                    )
+                }
             }
         }
     }
@@ -54,6 +71,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppNav(settings: AppSettings) {
     val nav = rememberNavController()
+    DisposableEffect(nav) {
+        val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, dest, args ->
+            val params = args?.keySet()?.filter { it != "android-support-nav:controller:deepLinkIntent" }
+                ?.joinToString { "$it=${args.get(it)}" }.orEmpty()
+            CrashLog.note("Экран ${dest.route} $params")
+        }
+        nav.addOnDestinationChangedListener(listener)
+        onDispose { nav.removeOnDestinationChangedListener(listener) }
+    }
     NavHost(navController = nav, startDestination = "library") {
         composable("library") {
             LibraryScreen(
