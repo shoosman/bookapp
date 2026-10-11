@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**', 'fix/**']
     paths-ignore: ['**.md']
   pull_request:
     branches: [main]
@@ -35,7 +35,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "out/Chtets-0.1.${GITHUB_RUN_NUMBER}.apk"
 
       - name: Publish release
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
