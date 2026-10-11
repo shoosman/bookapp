@@ -30,7 +30,27 @@ object CoverFinder {
 
     // ---------------- Литрес ----------------
 
+    /** Страница книги на Литресе, если она там есть (для «Где купить»). */
+    fun litresPage(title: String, author: String): String? {
+        val surname = surname(author)
+        for (q in titleVariants(title)) {
+            litresMatch(q, surname)?.let { return "https://www.litres.ru" + it.optString("url") }
+        }
+        return null
+    }
+
     private fun litres(query: String, surname: String): Found? {
+        val best = litresMatch(query, surname) ?: return null
+        val id = best.optLong("id")
+        val coverPath = best.optString("cover_url").ifBlank { return null }
+        // Крупная версия обложки; если её нет — та, что пришла в ответе.
+        val bytes = download("https://cdn.litres.ru/pub/c/cover_415/$id.jpg")
+            ?: download("https://cdn.litres.ru$coverPath")
+            ?: return null
+        return Found(bytes, "https://www.litres.ru" + best.optString("url"), "Литрес")
+    }
+
+    private fun litresMatch(query: String, surname: String): JSONObject? {
         val url = "https://api.litres.ru/foundation/api/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", listOf(query, surname).filter { it.isNotBlank() }.joinToString(" "))
             .addQueryParameter("types", "text_book")
@@ -53,14 +73,7 @@ object CoverFinder {
             val score = titleScore(query, inst.optString("title"))
             if (score > 0) candidates.add(score to inst)
         }
-        val best = candidates.maxByOrNull { it.first }?.second ?: return null
-        val id = best.optLong("id")
-        val coverPath = best.optString("cover_url").ifBlank { return null }
-        // Крупная версия обложки; если её нет — та, что пришла в ответе.
-        val bytes = download("https://cdn.litres.ru/pub/c/cover_415/$id.jpg")
-            ?: download("https://cdn.litres.ru$coverPath")
-            ?: return null
-        return Found(bytes, "https://www.litres.ru" + best.optString("url"), "Литрес")
+        return candidates.maxByOrNull { it.first }?.second
     }
 
     // ---------------- Author.Today ----------------

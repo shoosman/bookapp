@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Settings
+import com.shoosman.bookapp.ui.catalog.CatalogScreen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -69,6 +71,12 @@ fun MainScreen(
                     NavigationBarItem(
                         selected = tab == 2,
                         onClick = { tab = 2 },
+                        icon = { Icon(Icons.Outlined.Explore, null) },
+                        label = { Text("Каталог") },
+                    )
+                    NavigationBarItem(
+                        selected = tab == 3,
+                        onClick = { tab = 3 },
                         icon = { Icon(Icons.Outlined.Settings, null) },
                         label = { Text("Настройки") },
                     )
@@ -93,6 +101,7 @@ fun MainScreen(
                     importer = importer,
                     onOpenBook = onOpenBook,
                 )
+                2 -> CatalogScreen(onOpenBrowser = { onOpenBrowser(it) }, onOpenBook = onOpenBook)
                 else -> SettingsScreen(settings = settings, onBack = null)
             }
         }
