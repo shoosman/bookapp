@@ -64,7 +64,11 @@ import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.data.textProgress
 import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.ui.common.Cover
+import com.shoosman.bookapp.data.ImportProgress
+import com.shoosman.bookapp.data.OnProgress
 import com.shoosman.bookapp.ui.common.ErrorDialog
+import com.shoosman.bookapp.ui.common.NoticeDialog
+import com.shoosman.bookapp.ui.common.ProgressDialog
 import com.shoosman.bookapp.ui.common.MiniPlayer
 import com.shoosman.bookapp.ui.common.SectionTitle
 import com.shoosman.bookapp.ui.common.fmtDuration
@@ -102,12 +106,20 @@ fun BookScreen(
     var editing by remember { mutableStateOf(false) }
     var annotationExpanded by remember { mutableStateOf(false) }
 
-    fun runTask(block: suspend () -> Unit) {
+    var progress by remember { mutableStateOf<ImportProgress?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+
+    /** Долгая операция с файлами: показывает ход, предупреждение и ошибку. */
+    fun runTask(audioChanges: Boolean, block: suspend (OnProgress) -> String?) {
         busy = true
+        progress = ImportProgress("Подождите…", null)
+        if (audioChanges) app.player.forget(bookId)
         repo.appScope.launch {
-            val r = runCatching { block() }
+            val r = runCatching { block { progress = it } }
             withContext(Dispatchers.Main) {
                 busy = false
+                progress = null
+                r.onSuccess { notice = it }
                 r.onFailure {
                     CrashLog.note("Ошибка: ${it.javaClass.simpleName}")
                     error = (it.message ?: "Ошибка") to CrashLog.describe(it, "Ошибка на странице книги")
@@ -117,13 +129,13 @@ fun BookScreen(
     }
 
     val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runTask { repo.attachText(bookId, uri) }
+        if (uri != null) runTask(false) { p -> repo.attachText(bookId, uri, p) }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) runTask { repo.attachAudio(bookId, uris) }
+        if (uris.isNotEmpty()) runTask(true) { p -> repo.attachAudio(bookId, uris, p) }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) runTask { repo.attachAudioTree(bookId, uri) }
+        if (uri != null) runTask(true) { p -> repo.attachAudioTree(bookId, uri, p) }
     }
 
     val b = book
@@ -243,6 +255,17 @@ fun BookScreen(
                             OutlinedButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Файлы") }
                             OutlinedButton(onClick = { pickFolder.launch(null) }) { Text("Папка") }
                         }
+                        if (tracks.any { repo.isExternal(it.uri) }) {
+                            Text(
+                                "Аудио лежит вне приложения: если удалить файлы, оно перестанет играть.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            TextButton(onClick = { runTask(true) { p -> repo.moveAudioIntoApp(bookId, p) } }) {
+                                Text("Перенести аудио в приложение")
+                            }
+                        }
 
                         if (b.hasText && b.hasAudio) {
                             Spacer(Modifier.height(16.dp))
@@ -297,7 +320,7 @@ fun BookScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Удалить книгу?") },
-            text = { Text("«${b.title}» исчезнет из библиотеки вместе с закладками. Исходные файлы на телефоне останутся.") },
+            text = { Text("«${b.title}» удалится вместе с закладками и файлами книги, которые хранятся в приложении. Отменить это нельзя.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
@@ -331,6 +354,9 @@ fun BookScreen(
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Отмена") } },
         )
     }
+
+    progress?.let { ProgressDialog(it) }
+    notice?.let { NoticeDialog(it) { notice = null } }
 
     error?.let { (msg, details) ->
         ErrorDialog(msg, details, onDismiss = { error = null })

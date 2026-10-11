@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -83,5 +85,42 @@ fun ErrorDialog(message: String, details: String?, onDismiss: () -> Unit) {
         } else {
             null
         },
+    )
+}
+
+/** Неотменяемое окно с ходом долгой операции (перенос файлов). */
+@Composable
+fun ProgressDialog(p: com.shoosman.bookapp.data.ImportProgress) {
+    AlertDialog(
+        onDismissRequest = {},
+        confirmButton = {},
+        title = { Text("Подождите…") },
+        text = {
+            Column {
+                Text(p.text, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(16.dp))
+                val fraction = p.fraction
+                if (fraction != null) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp))
+                } else {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
+        },
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+    )
+}
+
+@Composable
+fun NoticeDialog(text: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Готово, но есть нюанс") },
+        text = { Text(text) },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Понятно") } },
     )
 }

@@ -188,6 +188,19 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         refresh()
     }
 
+    /** Файлы книги поменялись (перенос, замена аудио) — выгрузить её из плеера. */
+    fun forget(bookId: Long) {
+        if (_ui.value.bookId != bookId) return
+        save(force = true)
+        controller?.run {
+            stop()
+            clearMediaItems()
+        }
+        tracks = emptyList()
+        starts = LongArray(0)
+        _ui.value = PlayerUi()
+    }
+
     private fun locate(globalMs: Long): Pair<Int, Long> {
         if (starts.isEmpty()) return 0 to 0L
         var i = starts.indexOfLast { it <= globalMs }

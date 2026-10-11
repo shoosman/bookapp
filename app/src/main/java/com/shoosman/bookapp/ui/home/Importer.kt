@@ -24,7 +24,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.data.ImportProgress
+import com.shoosman.bookapp.data.ImportResult
+import com.shoosman.bookapp.data.OnProgress
 import com.shoosman.bookapp.ui.common.ErrorDialog
+import com.shoosman.bookapp.ui.common.NoticeDialog
+import com.shoosman.bookapp.ui.common.ProgressDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,6 +39,8 @@ class Importer {
     var sheet by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var error by mutableStateOf<Pair<String, String?>?>(null)
+    var progress by mutableStateOf<ImportProgress?>(null)
+    var notice by mutableStateOf<String?>(null)
 
     fun open() {
         if (!busy) sheet = true
@@ -46,14 +53,19 @@ class Importer {
 fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
     val repo = App.instance.repo
 
-    fun startImport(block: suspend () -> Long) {
+    fun startImport(block: suspend (OnProgress) -> ImportResult) {
         importer.busy = true
+        importer.progress = ImportProgress("Подождите…", null)
         CrashLog.note("Добавление книги")
         repo.appScope.launch {
-            val result = runCatching { block() }
+            val result = runCatching { block { importer.progress = it } }
             withContext(Dispatchers.Main) {
                 importer.busy = false
-                result.onSuccess { onOpenBook(it) }.onFailure {
+                importer.progress = null
+                result.onSuccess {
+                    importer.notice = it.notice
+                    onOpenBook(it.bookId)
+                }.onFailure {
                     CrashLog.note("Ошибка добавления: ${it.javaClass.simpleName}")
                     importer.error = (it.message ?: "Не удалось добавить книгу") to CrashLog.describe(it, "Ошибка при добавлении книги")
                 }
@@ -62,13 +74,13 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
     }
 
     val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) startImport { repo.createFromText(uri) }
+        if (uri != null) startImport { p -> repo.createFromText(uri, p) }
     }
     val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) startImport { repo.createFromAudio(uris) }
+        if (uris.isNotEmpty()) startImport { p -> repo.createFromAudio(uris, p) }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) startImport { repo.createFromAudioTree(uri) }
+        if (uri != null) startImport { p -> repo.createFromAudioTree(uri, p) }
     }
 
     if (importer.sheet) {
@@ -97,7 +109,7 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
                 modifier = Modifier.clickable { importer.sheet = false; pickFolder.launch(null) },
             )
             Text(
-                "Текст и аудио одной книги объединяются на её странице: добавьте одно, а второе прикрепите там.",
+                "Файлы переносятся в приложение: после добавления оригинал удаляется с телефона. Текст и аудио одной книги объединяются на её странице.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -105,6 +117,9 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    importer.progress?.let { ProgressDialog(it) }
+    importer.notice?.let { NoticeDialog(it) { importer.notice = null } }
 
     importer.error?.let { (msg, details) ->
         ErrorDialog(msg, details, onDismiss = { importer.error = null })
