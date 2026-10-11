@@ -136,6 +136,7 @@ private fun AppNav(settings: AppSettings) {
                 onBack = { nav.popBackStack() },
                 onRead = { pos -> nav.navigate("reader/$id?pos=$pos") },
                 onListen = { ms -> nav.navigate("player/$id?ms=$ms") },
+                onOpenOther = { other -> nav.navigate("book/$other") },
             )
         }
         composable(

@@ -1,6 +1,18 @@
 package com.shoosman.bookapp.ui.home
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.shadow
+import com.shoosman.bookapp.data.SeriesGuess
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -201,11 +213,96 @@ private fun ShelfRow(shelf: Shelf, onOpenBook: (Long) -> Unit, onShelf: (Int) ->
             Spacer(Modifier.weight(1f))
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Вся полка", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        var openSeries by remember { mutableStateOf<List<BookEntity>?>(null) }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(shelf.books, key = { it.id }) { book -> BookTile(book) { onOpenBook(book.id) } }
+            items(tilesOf(shelf.books), key = { it.first }) { (_, group) ->
+                if (group.size == 1) BookTile(group[0]) { onOpenBook(group[0].id) }
+                else SeriesTile(group) { openSeries = group }
+            }
+        }
+        openSeries?.let { g -> SeriesBooksSheet(g, onDismiss = { openSeries = null }) { id -> openSeries = null; onOpenBook(id) } }
+    }
+}
+
+/** Книги одного цикла на полке — одна плитка (на месте первой из них). */
+private fun tilesOf(books: List<BookEntity>): List<Pair<String, List<BookEntity>>> {
+    fun key(b: BookEntity) = SeriesGuess.key(b.series) + "|" + b.author.substringBefore(',').trim().lowercase().split(' ').lastOrNull().orEmpty()
+    val groups = books.filter { it.series.isNotBlank() }.groupBy { key(it) }
+    val placed = HashSet<String>()
+    val out = ArrayList<Pair<String, List<BookEntity>>>()
+    for (b in books) {
+        val g = if (b.series.isNotBlank()) groups[key(b)].orEmpty() else emptyList()
+        if (g.size < 2) { out.add("b${b.id}" to listOf(b)); continue }
+        if (placed.add(key(b))) {
+            out.add("s" + key(b) to g.sortedWith(compareBy({ if (it.seriesIndex > 0f) it.seriesIndex else Float.MAX_VALUE }, { it.title })))
+        }
+    }
+    return out
+}
+
+@Composable
+private fun SeriesTile(books: List<BookEntity>, onClick: () -> Unit) {
+    val first = books.first()
+    Column(Modifier.width(104.dp).clickable(onClick = onClick)) {
+        Box(Modifier.size(104.dp, 152.dp)) {
+            books.getOrNull(1)?.let { Cover(it.title, it.author, it.coverPath, Modifier.size(92.dp, 140.dp).offset(12.dp, 0.dp)) }
+            Cover(first.title, first.author, first.coverPath, Modifier.offset(0.dp, 6.dp).shadow(3.dp).size(94.dp, 146.dp))
+            Text(
+                "${books.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            )
+        }
+        Text(
+            first.series,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            "Цикл · ${books.size}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SeriesBooksSheet(books: List<BookEntity>, onDismiss: () -> Unit, onOpen: (Long) -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Text(books.first().series, style = MaterialTheme.typography.titleLarge)
+            Text(books.first().author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            books.forEach { b ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpen(b.id) }.padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (b.seriesIndex > 0f) SeriesGuess.format(b.seriesIndex) else "·",
+                        modifier = Modifier.width(30.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Cover(b.title, b.author, b.coverPath, Modifier.size(40.dp, 58.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(b.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(BookStatus.label(b.status), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
     }
 }

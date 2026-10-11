@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.shadow
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.SeriesGuess
+import com.shoosman.bookapp.data.genreList
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.data.progress
@@ -117,6 +118,8 @@ fun LibraryTab(
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var sortMenu by remember { mutableStateOf(false) }
     var grouped by rememberSaveable { mutableStateOf(true) }
+    var genre by rememberSaveable { mutableStateOf("") }
+    var genreMenu by remember { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     Scaffold(
@@ -192,12 +195,39 @@ fun LibraryTab(
                 }
             }
 
+            // Жанры своей библиотеки: самые частые сверху
+            val genres = all.flatMap { it.genreList }.groupingBy { it }.eachCount()
+                .entries.sortedByDescending { it.value }.map { it.key to it.value }
+            if (genres.isNotEmpty()) {
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    FilterChip(
+                        selected = genre.isNotEmpty(),
+                        onClick = { genreMenu = true },
+                        label = { Text(if (genre.isEmpty()) "Жанр: все" else "Жанр: $genre") },
+                        trailingIcon = {
+                            if (genre.isNotEmpty()) Icon(Icons.Filled.Close, "Сбросить жанр", Modifier.size(16.dp).clickable { genre = "" })
+                        },
+                    )
+                    DropdownMenu(expanded = genreMenu, onDismissRequest = { genreMenu = false }) {
+                        DropdownMenuItem(text = { Text("Все жанры") }, onClick = { genre = ""; genreMenu = false })
+                        genres.forEach { (g, n) ->
+                            DropdownMenuItem(
+                                text = { Text("$g · $n") },
+                                leadingIcon = { if (g == genre) Icon(Icons.Filled.Check, null) },
+                                onClick = { genre = g; genreMenu = false },
+                            )
+                        }
+                    }
+                }
+            }
+
             val q = query.trim().lowercase()
             val shown = all
                 .filter { shelf == SHELF_ALL || it.status == shelf }
+                .filter { genre.isEmpty() || genre in it.genreList }
                 .filter {
                     q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
-                        it.series.lowercase().contains(q)
+                        it.series.lowercase().contains(q) || it.genres.lowercase().contains(q)
                 }
                 .let { list ->
                     when (sort) {

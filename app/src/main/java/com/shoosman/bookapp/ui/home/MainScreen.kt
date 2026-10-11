@@ -42,6 +42,14 @@ fun MainScreen(
     var shelf by rememberSaveable { mutableIntStateOf(SHELF_ALL) }
     val importer = remember { Importer() }
 
+    // После обновления один раз дополняем библиотеку (обложки, жанры, циклы) — когда облако уже подтянулось.
+    androidx.compose.runtime.LaunchedEffect(books?.size) {
+        if ((books?.size ?: 0) > 0) {
+            kotlinx.coroutines.delay(15_000)
+            App.instance.enricher.run(auto = true)
+        }
+    }
+
     // Поделились ссылкой — открываем «Новую книгу» с ней.
     val shared by App.instance.sharedText.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(shared) {

@@ -71,7 +71,13 @@ data class BookEntity(
     val series: String = "",
     /** Номер в цикле; 0 — неизвестен. Дробный — для частей (8.1, 8.2). */
     val seriesIndex: Float = 0f,
+    // --- с версии 4: жанры ---
+    /** Жанры и теги через «; » — с сайтов (Литрес, каталоги) или вручную. */
+    val genres: String = "",
 )
+
+val BookEntity.genreList: List<String>
+    get() = genres.split(';').map { it.trim() }.filter { it.isNotEmpty() }
 
 val BookEntity.hasText: Boolean get() = textPath != null
 val BookEntity.hasAudio: Boolean get() = audioTotalMs > 0

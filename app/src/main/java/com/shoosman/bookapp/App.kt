@@ -17,8 +17,8 @@ class App : Application() {
         private set
     lateinit var repo: BookRepository
         private set
-    /** Поиск недостающих обложек. */
-    val covers by lazy { com.shoosman.bookapp.data.Covers(repo) }
+    /** Дополнение книг с сайтов: обложки, жанры, циклы. */
+    val enricher by lazy { com.shoosman.bookapp.data.Enricher(this, repo) }
     lateinit var settings: SettingsStore
         private set
     lateinit var player: PlayerConnection
@@ -37,7 +37,7 @@ class App : Application() {
         CrashLog.note("Запуск приложения")
         instance = this
         db = Room.databaseBuilder(this, AppDatabase::class.java, "books.db")
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .build()
         repo = BookRepository(this, db)
         settings = SettingsStore(this)

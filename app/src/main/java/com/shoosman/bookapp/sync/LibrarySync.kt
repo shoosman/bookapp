@@ -6,6 +6,7 @@ import com.shoosman.bookapp.data.AnchorEntity
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookRepository
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.genreList
 import com.shoosman.bookapp.data.BookmarkEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -307,6 +308,7 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
             title = b.title, author = b.author, annotation = b.annotation, sourceUrl = b.sourceUrl,
             addedAt = b.addedAt, cover = cover, metaTs = b.metaUpdatedAt,
             series = b.series, seriesIndex = Math.round(b.seriesIndex * 100.0) / 100.0,
+            genres = b.genreList,
             status = BookDoc.statusName(b.status), rating = b.rating, notes = b.notes,
             startedAt = b.startedAt, finishedAt = b.finishedAt, shelfTs = b.shelfUpdatedAt,
             text = text, textTs = b.textUpdatedAt,
@@ -348,6 +350,7 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                     title = merged.title, author = merged.author, annotation = merged.annotation,
                     sourceUrl = merged.sourceUrl, metaUpdatedAt = merged.metaTs,
                     series = merged.series, seriesIndex = merged.seriesIndex.toFloat(),
+                    genres = merged.genres.joinToString("; "),
                 )
                 val coverFile = repo.coverFile(dir)
                 val remoteCover = merged.cover?.let { files[it] }
@@ -541,8 +544,8 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
         private const val KEY_LOGIN = "login"
         private const val KEY_REPO = "repo"
         private const val KEY_BRANCH = "branch"
-        /** v2: с циклами — после обновления облако перечитывается целиком один раз. */
-        private const val KEY_STATE = "state_v2"
+        /** v3: циклы и жанры — после обновления облако перечитывается целиком один раз. */
+        private const val KEY_STATE = "state_v3"
         private const val KEY_LAST = "lastSync"
     }
 }

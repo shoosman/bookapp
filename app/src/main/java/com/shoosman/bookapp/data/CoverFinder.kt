@@ -30,6 +30,22 @@ object CoverFinder {
 
     // ---------------- Литрес ----------------
 
+    /** id книги на Литресе по названию и автору. */
+    fun litresId(title: String, author: String): Long? {
+        val surname = surname(author)
+        for (q in titleVariants(title)) {
+            litresMatch(q, surname)?.let { return it.optLong("id").takeIf { id -> id > 0 } }
+        }
+        return null
+    }
+
+    /** Обложка только с Author.Today (когда на Литресе книги нет). */
+    fun fromAuthorToday(title: String, author: String): Found? {
+        val surname = surname(author)
+        for (q in titleVariants(title)) runCatching { authorToday(q, surname) }.getOrNull()?.let { return it }
+        return null
+    }
+
     /** Страница книги на Литресе, если она там есть (для «Где купить»). */
     fun litresPage(title: String, author: String): String? {
         val surname = surname(author)
@@ -154,7 +170,7 @@ object CoverFinder {
         return Http.client.newCall(req).execute().use { r -> if (r.isSuccessful) r.body?.string() else null }
     }
 
-    private fun download(url: String): ByteArray? {
+    fun download(url: String): ByteArray? {
         val req = Request.Builder().url(url).header("User-Agent", UA).build()
         return runCatching {
             Http.client.newCall(req).execute().use { r ->

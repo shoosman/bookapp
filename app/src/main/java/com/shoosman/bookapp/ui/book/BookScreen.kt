@@ -48,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.SeriesGuess
+import com.shoosman.bookapp.data.genreList
 import com.shoosman.bookapp.data.audioProgress
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
@@ -96,6 +98,8 @@ fun BookScreen(
     onRead: (Int) -> Unit,
     /** Открыть плеер; -1 — с сохранённого места. */
     onListen: (Long) -> Unit,
+    /** Открыть другую книгу (например, том того же цикла). */
+    onOpenOther: (Long) -> Unit = {},
 ) {
     val app = App.instance
     val repo = app.repo
@@ -179,7 +183,7 @@ fun BookScreen(
                                 looking = true
                                 notFound = false
                                 scope.launch {
-                                    notFound = !app.covers.findOne(bookId)
+                                    notFound = !app.enricher.enrichOne(bookId)
                                     looking = false
                                 }
                             },
@@ -231,6 +235,30 @@ fun BookScreen(
                     }
                 }
             } }
+
+            if (b.series.isNotBlank() || b.genres.isNotBlank()) {
+                item {
+                    var showSeries by remember { mutableStateOf(false) }
+                    Column {
+                        if (b.genreList.isNotEmpty()) {
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()).padding(top = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                b.genreList.forEach { g ->
+                                    androidx.compose.material3.SuggestionChip(onClick = {}, label = { Text(g) })
+                                }
+                            }
+                        }
+                        if (b.series.isNotBlank()) {
+                            OutlinedButton(onClick = { showSeries = true }, modifier = Modifier.padding(top = 8.dp)) {
+                                Text("Книги цикла «${b.series}»", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    if (showSeries) SeriesSheet(b, onDismiss = { showSeries = false }, onOpen = { id -> showSeries = false; onOpenOther(id) })
+                }
+            }
 
             item { Column {
                 SectionTitle("Полка")
@@ -583,4 +611,86 @@ private fun DateChip(label: String, date: Long, onClick: () -> Unit) {
             )
         },
     )
+}
+
+/** Тома цикла: что уже есть в библиотеке и чего не хватает (по данным Литреса). */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun SeriesSheet(b: BookEntity, onDismiss: () -> Unit, onOpen: (Long) -> Unit) {
+    val app = App.instance
+    val scope = rememberCoroutineScope()
+    val books by app.repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    val mine = books.filter { it.series == b.series }
+        .sortedWith(compareBy({ if (it.seriesIndex > 0f) it.seriesIndex else Float.MAX_VALUE }, { it.title }))
+    var vols by remember { mutableStateOf<List<com.shoosman.bookapp.data.Enricher.Volume>?>(null) }
+    var loaded by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    var addedMsg by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(b.id) {
+        vols = runCatching { app.enricher.seriesVolumes(b.id) }.getOrNull()
+        loaded = true
+    }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Text(b.series, style = MaterialTheme.typography.titleLarge)
+            Text("В библиотеке: ${mine.size}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            mine.forEach { m ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpen(m.id) }.padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (m.seriesIndex > 0f) SeriesGuess.format(m.seriesIndex) else "·",
+                        modifier = Modifier.width(32.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(m.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(BookStatus.label(m.status), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            SectionTitle("На Литресе")
+            val v = vols
+            when {
+                !loaded -> Text("Ищу цикл на Литресе…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                v == null -> Text("Цикл на Литресе не найден.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> {
+                    val missing = v.count { it.ownedId == null }
+                    v.forEach { vol ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (vol.art.seriesOrder > 0f) SeriesGuess.format(vol.art.seriesOrder) else "·",
+                                modifier = Modifier.width(32.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(vol.art.title, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                if (vol.ownedId != null) "есть" else "нет",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (vol.ownedId != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (missing > 0) {
+                        androidx.compose.material3.Button(
+                            enabled = !adding,
+                            onClick = {
+                                adding = true
+                                scope.launch {
+                                    val n = app.enricher.addMissingVolumes(b.id, v)
+                                    addedMsg = "Добавлено в «Хочу прочитать»: $n"
+                                    vols = app.enricher.seriesVolumes(b.id)
+                                    adding = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        ) { Text(if (adding) "Добавляю…" else "Добавить недостающие ($missing) в «Хочу прочитать»") }
+                    }
+                    addedMsg?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
+                }
+            }
+        }
+    }
 }

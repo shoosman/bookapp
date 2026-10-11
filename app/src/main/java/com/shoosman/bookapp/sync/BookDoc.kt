@@ -20,6 +20,8 @@ data class BookDoc(
     /** Цикл и номер в нём — часть описания книги (metaUpdatedAt). */
     val series: String,
     val seriesIndex: Double,
+    /** Жанры — тоже часть описания. */
+    val genres: List<String>,
     val metaTs: Long,
     // полка
     val status: String,
@@ -59,6 +61,7 @@ data class BookDoc(
         o.put("cover", cover ?: JSONObject.NULL)
         o.put("series", series)
         o.put("seriesIndex", seriesIndex)
+        o.put("genres", JSONArray().apply { genres.forEach { put(it) } })
         o.put("metaUpdatedAt", metaTs)
         o.put("status", status)
         o.put("rating", rating)
@@ -130,6 +133,7 @@ data class BookDoc(
                 addedAt = o.optLong("addedAt"),
                 cover = if (o.isNull("cover")) null else o.optString("cover").ifBlank { null },
                 series = str("series"),
+                genres = o.optJSONArray("genres")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList(),
                 seriesIndex = (o.optDouble("seriesIndex", 0.0).takeIf { !it.isNaN() } ?: 0.0).let { Math.round(it * 100.0) / 100.0 },
                 metaTs = o.optLong("metaUpdatedAt"),
                 status = o.optString("status", "want"),
@@ -180,7 +184,7 @@ data class BookDoc(
                 title = m.title, author = m.author, annotation = m.annotation, sourceUrl = m.sourceUrl,
                 addedAt = minOf(local.addedAt.takeIf { it > 0 } ?: Long.MAX_VALUE, remote.addedAt.takeIf { it > 0 } ?: Long.MAX_VALUE)
                     .let { if (it == Long.MAX_VALUE) 0 else it },
-                cover = m.cover, series = m.series, seriesIndex = m.seriesIndex, metaTs = m.metaTs,
+                cover = m.cover, series = m.series, seriesIndex = m.seriesIndex, genres = m.genres, metaTs = m.metaTs,
                 status = sh.status, rating = sh.rating, notes = sh.notes, startedAt = sh.startedAt, finishedAt = sh.finishedAt,
                 shelfTs = sh.shelfTs,
                 text = tx.text, textTs = tx.textTs,
