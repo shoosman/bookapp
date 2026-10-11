@@ -171,8 +171,10 @@ private fun ReaderContent(
     val ctx = LocalContext.current
     val ps by player.ui.collectAsStateWithLifecycle()
 
-    val mapper = remember(c, tracks, anchors) {
-        if (tracks.isNotEmpty()) SyncMapper.build(c, tracks, anchors) else null
+    var marks by remember { mutableStateOf<List<Long>>(emptyList()) }
+    LaunchedEffect(tracks) { marks = repo.embeddedMarks(book, tracks).map { it.startMs } }
+    val mapper = remember(c, tracks, anchors, marks) {
+        if (tracks.isNotEmpty()) SyncMapper.build(c, tracks, anchors, marks) else null
     }
     val hasAudio = tracks.isNotEmpty()
     val audioActive = ps.bookId == bookId
@@ -258,6 +260,7 @@ private fun ReaderContent(
         CrashLog.note("Читалка: привязка абзаца $i к ${fmtTime(ms)}")
         scope.launch {
             repo.addAnchor(bookId, ms, c.paragraphs[i].start)
+            player.refreshChapters(bookId)
             follow = true
             snackbar.showSnackbar("Готово: ${fmtTime(ms)} в аудио = этот абзац")
         }

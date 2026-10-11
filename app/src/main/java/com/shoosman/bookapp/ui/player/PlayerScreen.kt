@@ -19,6 +19,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.BookmarkAdd
@@ -99,9 +104,14 @@ fun PlayerScreen(
         val b = repo.book(bookId)
         if (b != null && b.hasText) content = runCatching { repo.content(b) }.getOrNull()
     }
+    var marks by remember { mutableStateOf<List<Long>>(emptyList()) }
+    LaunchedEffect(tracks) {
+        val b = repo.book(bookId) ?: return@LaunchedEffect
+        marks = repo.embeddedMarks(b, tracks).map { it.startMs }
+    }
     val c = content
-    val mapper = remember(c, tracks, anchors) {
-        if (c != null && tracks.isNotEmpty()) SyncMapper.build(c, tracks, anchors) else null
+    val mapper = remember(c, tracks, anchors, marks) {
+        if (c != null && tracks.isNotEmpty()) SyncMapper.build(c, tracks, anchors, marks) else null
     }
     val active = s.bookId == bookId
     var sheet by remember { mutableStateOf<String?>(null) }
@@ -118,7 +128,7 @@ fun PlayerScreen(
         val ms = s.globalMs
         val pos = currentChar()
         val snippet = c?.let { if (pos >= 0) it.paragraphs.getOrNull(it.paragraphAt(pos))?.text else null }
-            ?: "${s.trackTitle} · ${fmtTime(s.posMs)}"
+            ?: "${s.chapterTitle} · ${fmtTime(s.chapterPosMs)}"
         scope.launch {
             repo.addBookmark(bookId, pos, ms, snippet)
             snackbar.showSnackbar("Закладка добавлена")
@@ -150,42 +160,55 @@ fun PlayerScreen(
                 Text(b.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(8.dp))
-            val chapterTitle = if (c != null && active) {
-                val pos = currentChar()
-                c.chapters.getOrNull(c.chapterAt(pos))?.title
-            } else null
-            Text(
-                chapterTitle ?: s.trackTitle,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (s.trackCount > 1) {
+            // Текущая глава: нажатие открывает список глав.
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = s.chapterCount > 1) { sheet = "chapters" }
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 Text(
-                    "Файл ${s.track + 1} из ${s.trackCount}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    s.chapterTitle,
+                    style = MaterialTheme.typography.titleSmall,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (s.chapterCount > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Глава ${s.chapter + 1} из ${s.chapterCount} · ${fmtTime(s.chapterDurMs)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.List, "Список глав",
+                            Modifier.padding(start = 4.dp).size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
 
-            Spacer(Modifier.height(16.dp))
+            // Таймлайн — только текущая глава.
+            Spacer(Modifier.height(12.dp))
             var drag by remember { mutableStateOf<Float?>(null) }
-            val dur = s.durMs.coerceAtLeast(1L)
-            val shownPos = drag?.toLong() ?: s.posMs
+            val dur = s.chapterDurMs.coerceAtLeast(1L)
+            val shownPos = drag?.toLong() ?: s.chapterPosMs
             Slider(
-                value = (drag ?: s.posMs.toFloat()).coerceIn(0f, dur.toFloat()),
+                value = (drag ?: s.chapterPosMs.toFloat()).coerceIn(0f, dur.toFloat()),
                 valueRange = 0f..dur.toFloat(),
                 onValueChange = { drag = it },
                 onValueChangeFinished = {
-                    drag?.let { player.seekInTrack(it.toLong()) }
+                    drag?.let { player.seekInChapter(it.toLong()) }
                     drag = null
                 },
             )
             Row(Modifier.fillMaxWidth()) {
                 Text(fmtTime(shownPos), style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.weight(1f))
-                Text("−" + fmtTime((s.durMs - shownPos).coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium)
+                Text("−" + fmtTime((s.chapterDurMs - shownPos).coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium)
             }
             if (s.totalMs > 0) {
                 val left = ((s.totalMs - s.globalMs) / s.speed.coerceAtLeast(0.1f)).toLong()
@@ -203,7 +226,7 @@ fun PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { player.previousTrack() }) { Icon(Icons.Filled.SkipPrevious, "Предыдущий файл") }
+                IconButton(onClick = { player.previousChapter() }) { Icon(Icons.Filled.SkipPrevious, "Предыдущая глава") }
                 SkipButton(Icons.Filled.FastRewind, "−${settings.skipBackSec}") { player.skip(-settings.skipBackSec * 1000L) }
                 FilledIconButton(onClick = { player.toggle() }, modifier = Modifier.size(76.dp)) {
                     Icon(
@@ -213,7 +236,10 @@ fun PlayerScreen(
                     )
                 }
                 SkipButton(Icons.Filled.FastForward, "+${settings.skipForwardSec}") { player.skip(settings.skipForwardSec * 1000L) }
-                IconButton(onClick = { player.nextTrack() }) { Icon(Icons.Filled.SkipNext, "Следующий файл") }
+                IconButton(
+                    onClick = { player.nextChapter() },
+                    enabled = s.chapter < s.chapterCount - 1,
+                ) { Icon(Icons.Filled.SkipNext, "Следующая глава") }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -229,7 +255,7 @@ fun PlayerScreen(
                     Text(
                         when {
                             s.sleepLeftMs > 0 -> fmtTime(s.sleepLeftMs)
-                            s.sleepEndOfTrack -> "Конец файла"
+                            s.sleepEndOfChapter -> "Конец главы"
                             else -> "Таймер"
                         },
                     )
@@ -279,6 +305,34 @@ fun PlayerScreen(
             }
         }
 
+        "chapters" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
+            Text("Главы", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            val list = player.currentChapters
+            val listState = rememberLazyListState(initialFirstVisibleItemIndex = (s.chapter - 3).coerceAtLeast(0))
+            LazyColumn(state = listState) {
+                itemsIndexed(list) { i, ch ->
+                    val current = i == s.chapter
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                ch.title,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            )
+                        },
+                        trailingContent = { Text(fmtTime(ch.durationMs), style = MaterialTheme.typography.labelMedium) },
+                        modifier = Modifier.clickable {
+                            player.goToChapter(i)
+                            sheet = null
+                        },
+                    )
+                }
+                item { Spacer(Modifier.height(24.dp)) }
+            }
+        }
+
         "sleep" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("Таймер сна", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
@@ -289,10 +343,10 @@ fun PlayerScreen(
                     )
                 }
                 ListItem(
-                    headlineContent = { Text("До конца текущего файла") },
-                    modifier = Modifier.clickable { player.setSleepEndOfTrack(); sheet = null },
+                    headlineContent = { Text("До конца главы") },
+                    modifier = Modifier.clickable { player.setSleepEndOfChapter(); sheet = null },
                 )
-                if (s.sleepLeftMs > 0 || s.sleepEndOfTrack) {
+                if (s.sleepLeftMs > 0 || s.sleepEndOfChapter) {
                     ListItem(
                         headlineContent = { Text("Выключить таймер", color = MaterialTheme.colorScheme.error) },
                         modifier = Modifier.clickable { player.cancelSleep(); sheet = null },

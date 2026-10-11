@@ -7,6 +7,7 @@ import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
+import com.shoosman.bookapp.audio.EmbeddedChapters
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
 import com.shoosman.bookapp.text.BookParser
@@ -16,7 +17,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.util.UUID
+
+/** Глава аудиокниги: время от начала всей книги. */
+class AudioChapter(val title: String, val startMs: Long, val endMs: Long) {
+    val durationMs: Long get() = endMs - startMs
+}
 
 class ImportProgress(val text: String, val fraction: Float?)
 
@@ -384,7 +391,99 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         val tracks = dao.tracks(bookId)
         if (tracks.isEmpty()) return null
         val content = content(book) ?: return null
-        return SyncMapper.build(content, tracks, dao.anchors(bookId))
+        return SyncMapper.build(content, tracks, dao.anchors(bookId), embeddedMarks(book, tracks).map { it.startMs })
+    }
+
+    // ---------------- главы аудио ----------------
+
+    /**
+     * Главы, зашитые в аудиофайлы, в мс от начала книги. Разбираются один раз и
+     * запоминаются в папке книги, пока набор файлов не поменяется.
+     */
+    suspend fun embeddedMarks(book: BookEntity, tracks: List<TrackEntity>): List<AudioChapter> = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext emptyList()
+        val key = tracks.joinToString("|") { it.uri }.hashCode().toString()
+        val cache = File(book.dir, "chapters.cache")
+        runCatching {
+            val lines = cache.readLines()
+            if (lines.firstOrNull() == key) {
+                return@withContext lines.drop(1).mapNotNull { line ->
+                    val parts = line.split('\t', limit = 2)
+                    val ms = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+                    AudioChapter(parts.getOrElse(1) { "" }, ms, 0)
+                }
+            }
+        }
+
+        var offset = 0L
+        val perTrack = tracks.map { t ->
+            val marks = runCatching {
+                ctx.contentResolver.openFileDescriptor(Uri.parse(t.uri), "r")?.use { pfd ->
+                    FileInputStream(pfd.fileDescriptor).channel.use { EmbeddedChapters.read(it) }
+                }
+            }.getOrNull().orEmpty()
+            val start = offset
+            offset += t.durationMs
+            Triple(t, start, marks)
+        }
+        val result = ArrayList<AudioChapter>()
+        if (perTrack.any { it.third.isNotEmpty() }) {
+            for ((t, start, marks) in perTrack) {
+                if (marks.isEmpty()) {
+                    result.add(AudioChapter(t.title, start, 0))
+                } else {
+                    marks.forEach { result.add(AudioChapter(it.title, start + it.startMs, 0)) }
+                }
+            }
+        }
+        runCatching {
+            cache.writeText(key + "\n" + result.joinToString("\n") { "${it.startMs}\t${it.title.replace('\n', ' ')}" })
+        }
+        result
+    }
+
+    /**
+     * Главы для плеера. Порядок выбора:
+     * 1. главы, зашитые в аудиофайлы (M4B, MP3 с разметкой);
+     * 2. отдельные аудиофайлы, если их не меньше, чем глав в тексте (или текста нет);
+     * 3. главы текста, пересчитанные во время через синхронизацию.
+     */
+    suspend fun audioChapters(bookId: Long): List<AudioChapter> = withContext(Dispatchers.IO) {
+        val book = dao.get(bookId) ?: return@withContext emptyList()
+        val tracks = dao.tracks(bookId)
+        if (tracks.isEmpty()) return@withContext emptyList()
+        val total = tracks.sumOf { it.durationMs }
+
+        val starts = ArrayList<Pair<Long, String>>()
+        val embedded = embeddedMarks(book, tracks)
+        val content = runCatching { content(book) }.getOrNull()
+        if (embedded.size >= 2) {
+            embedded.forEach { starts.add(it.startMs to it.title) }
+        } else if (content == null || content.chapters.size < 2 || tracks.size >= content.chapters.size) {
+            var t = 0L
+            tracks.forEach {
+                starts.add(t to it.title)
+                t += it.durationMs
+            }
+        } else {
+            val mapper = SyncMapper.build(content, tracks, dao.anchors(bookId), emptyList())
+            content.chapters.forEach { starts.add(mapper.msAt(it.start) to it.title) }
+        }
+
+        // Наводим порядок: по возрастанию, без почти совпадающих, первая — с нуля.
+        val clean = ArrayList<Pair<Long, String>>()
+        for ((ms, title) in starts.sortedBy { it.first }) {
+            val last = clean.lastOrNull()
+            if (last != null && ms - last.first < 1500) continue
+            clean.add(ms.coerceIn(0, total) to title.ifBlank { "Глава ${clean.size + 1}" })
+        }
+        if (clean.isEmpty()) return@withContext emptyList()
+        if (clean[0].first in 1..3000) clean[0] = 0L to clean[0].second
+        else if (clean[0].first > 3000) clean.add(0, 0L to "Начало")
+
+        clean.mapIndexed { i, (ms, title) ->
+            AudioChapter(title, ms, clean.getOrNull(i + 1)?.first ?: total)
+        }.filter { it.endMs > it.startMs }
     }
 
     suspend fun delete(bookId: Long) = withContext(Dispatchers.IO) {

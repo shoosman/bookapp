@@ -79,7 +79,7 @@ fun MiniPlayer(onOpen: (Long) -> Unit, skipBackSec: Int, insetBottom: Boolean = 
     Surface(tonalElevation = 3.dp, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
         Column(if (insetBottom) Modifier.navigationBarsPadding() else Modifier) {
             LinearProgressIndicator(
-                progress = { if (s.durMs > 0) (s.posMs.toFloat() / s.durMs).coerceIn(0f, 1f) else 0f },
+                progress = { if (s.chapterDurMs > 0) (s.chapterPosMs.toFloat() / s.chapterDurMs).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
             )
             Row(
@@ -94,7 +94,7 @@ fun MiniPlayer(onOpen: (Long) -> Unit, skipBackSec: Int, insetBottom: Boolean = 
                 Column(Modifier.weight(1f)) {
                     Text(s.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        s.trackTitle,
+                        s.chapterTitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

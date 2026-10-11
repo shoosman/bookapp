@@ -13,6 +13,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.data.AudioChapter
 import com.shoosman.bookapp.data.BookRepository
 import com.shoosman.bookapp.data.TrackEntity
 import kotlinx.coroutines.CoroutineScope
@@ -46,8 +47,18 @@ data class PlayerUi(
     val totalMs: Long = 0,
     val speed: Float = 1f,
     val sleepLeftMs: Long = 0,
-    val sleepEndOfTrack: Boolean = false,
-)
+    val sleepEndOfChapter: Boolean = false,
+    /** Текущая глава аудио (см. BookRepository.audioChapters). */
+    val chapter: Int = 0,
+    val chapterCount: Int = 0,
+    val chapterTitle: String = "",
+    val chapterStartMs: Long = 0,
+    val chapterEndMs: Long = 0,
+) {
+    /** Позиция и длительность внутри текущей главы. */
+    val chapterPosMs: Long get() = (globalMs - chapterStartMs).coerceAtLeast(0)
+    val chapterDurMs: Long get() = (chapterEndMs - chapterStartMs).coerceAtLeast(0)
+}
 
 /** Связь интерфейса с фоновым плеером. Живёт всё время работы приложения. */
 class PlayerConnection(private val app: Context, private val repo: BookRepository) {
@@ -61,6 +72,11 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     private var tracks: List<TrackEntity> = emptyList()
     private var starts: LongArray = LongArray(0)
+    private var chapters: List<AudioChapter> = emptyList()
+    private var sleepChapter = -1
+
+    /** Главы текущей книги — для списка глав в плеере. */
+    val currentChapters: List<AudioChapter> get() = chapters
 
     private val _ui = MutableStateFlow(PlayerUi())
     val ui: StateFlow<PlayerUi> = _ui.asStateFlow()
@@ -72,10 +88,6 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (_ui.value.sleepEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                controller?.pause()
-                cancelSleep()
-            }
             refresh()
         }
 
@@ -124,6 +136,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         val tr = repo.tracks(bookId)
         if (tr.size != c.mediaItemCount) return
         setTracks(tr)
+        chapters = repo.audioChapters(bookId)
         _ui.value = PlayerUi(
             bookId = bookId, title = book.title, author = book.author, coverPath = book.coverPath,
             trackCount = tr.size, totalMs = totalOf(tr), speed = c.playbackParameters.speed,
@@ -152,6 +165,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         if (_ui.value.bookId != bookId || c.mediaItemCount != tr.size) {
             save(force = true)
             setTracks(tr)
+            chapters = repo.audioChapters(bookId)
             val artwork = book.coverPath?.let { Uri.fromFile(File(it)) }
             val items = tr.map { t ->
                 MediaItem.Builder()
@@ -178,7 +192,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
             _ui.value = PlayerUi(
                 bookId = bookId, title = book.title, author = book.author, coverPath = book.coverPath,
                 trackCount = tr.size, totalMs = totalOf(tr), speed = book.speed,
-                sleepLeftMs = _ui.value.sleepLeftMs, sleepEndOfTrack = _ui.value.sleepEndOfTrack,
+                sleepLeftMs = _ui.value.sleepLeftMs, sleepEndOfChapter = _ui.value.sleepEndOfChapter,
             )
         } else if (startGlobalMs != null) {
             seekGlobal(startGlobalMs)
@@ -198,6 +212,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         }
         tracks = emptyList()
         starts = LongArray(0)
+        chapters = emptyList()
         _ui.value = PlayerUi()
     }
 
@@ -253,6 +268,53 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         if (id >= 0) repo.appScope.launch { repo.setSpeed(id, speed) }
     }
 
+    // ---------------- главы ----------------
+
+    /** Пересчитать главы (например, после новой точки синхронизации). */
+    fun refreshChapters(bookId: Long) {
+        if (_ui.value.bookId != bookId) return
+        scope.launch {
+            chapters = repo.audioChapters(bookId)
+            refresh()
+        }
+    }
+
+    private fun chapterIndexAt(globalMs: Long): Int {
+        if (chapters.isEmpty()) return -1
+        var lo = 0
+        var hi = chapters.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (chapters[mid].startMs <= globalMs) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
+
+    /** В начало главы, а если мы и так в её начале — в предыдущую. */
+    fun previousChapter() {
+        val s = _ui.value
+        val i = chapterIndexAt(s.globalMs)
+        if (i < 0) return previousTrack()
+        val target = if (s.globalMs - chapters[i].startMs > 3000 || i == 0) chapters[i].startMs else chapters[i - 1].startMs
+        CrashLog.note("Плеер: предыдущая глава")
+        seekGlobal(target)
+    }
+
+    fun nextChapter() {
+        val i = chapterIndexAt(_ui.value.globalMs)
+        if (i < 0) return nextTrack()
+        val next = chapters.getOrNull(i + 1) ?: return
+        CrashLog.note("Плеер: следующая глава")
+        seekGlobal(next.startMs)
+    }
+
+    fun goToChapter(index: Int) {
+        val ch = chapters.getOrNull(index) ?: return
+        seekGlobal(ch.startMs)
+    }
+
+    fun seekInChapter(posMs: Long) = seekGlobal(_ui.value.chapterStartMs + posMs.coerceAtLeast(0))
+
     // ---------------- таймер сна ----------------
 
     fun setSleepMinutes(minutes: Int) {
@@ -275,16 +337,19 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         }
     }
 
-    fun setSleepEndOfTrack() {
+    fun setSleepEndOfChapter() {
         cancelSleep()
-        _ui.update { it.copy(sleepEndOfTrack = true) }
+        CrashLog.note("Таймер сна: до конца главы")
+        sleepChapter = _ui.value.chapter
+        _ui.update { it.copy(sleepEndOfChapter = true) }
     }
 
     fun cancelSleep() {
         sleepJob?.cancel()
         sleepJob = null
         controller?.volume = 1f
-        _ui.update { it.copy(sleepLeftMs = 0, sleepEndOfTrack = false) }
+        sleepChapter = -1
+        _ui.update { it.copy(sleepLeftMs = 0, sleepEndOfChapter = false) }
     }
 
     // ---------------- состояние ----------------
@@ -306,6 +371,10 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         val pos = c.currentPosition.coerceAtLeast(0)
         val known = tracks.getOrNull(idx)?.durationMs ?: 0L
         val dur = if (known > 0) known else c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val global = (starts.getOrNull(idx) ?: 0L) + pos
+        val ci = chapterIndexAt(global)
+        val ch = chapters.getOrNull(ci)
+        val trackStart = starts.getOrNull(idx) ?: 0L
         _ui.update {
             it.copy(
                 isPlaying = c.isPlaying,
@@ -313,9 +382,19 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
                 trackTitle = tracks.getOrNull(idx)?.title.orEmpty(),
                 posMs = pos,
                 durMs = dur,
-                globalMs = (starts.getOrNull(idx) ?: 0L) + pos,
+                globalMs = global,
                 speed = c.playbackParameters.speed,
+                chapter = ci.coerceAtLeast(0),
+                chapterCount = chapters.size,
+                chapterTitle = ch?.title ?: tracks.getOrNull(idx)?.title.orEmpty(),
+                chapterStartMs = ch?.startMs ?: trackStart,
+                chapterEndMs = ch?.endMs ?: (trackStart + dur),
             )
+        }
+        // Таймер «до конца главы»: глава сменилась — останавливаемся в начале новой.
+        if (_ui.value.sleepEndOfChapter && sleepChapter >= 0 && ci > sleepChapter && c.isPlaying) {
+            c.pause()
+            cancelSleep()
         }
         if (c.isPlaying && SystemClock.elapsedRealtime() - lastSave > 5_000) save()
     }
