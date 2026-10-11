@@ -37,4 +37,4 @@ jobs:
         run: |
           gh release create "v0.1.${GITHUB_RUN_NUMBER}" out/*.apk \
             --title "Чтец 0.1.${GITHUB_RUN_NUMBER}" \
-            --notes "$(git log -1 --pretty=%B | sed '/^Co-Authored-By/d;/^Claude-Session/d')"
+            --notes "$(git log -1 --pretty=%B)"
