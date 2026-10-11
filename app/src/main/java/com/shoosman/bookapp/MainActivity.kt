@@ -33,10 +33,16 @@ import com.shoosman.bookapp.ui.reader.ReaderScreen
 import com.shoosman.bookapp.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleShare(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val app = application as App
+        handleShare(intent)
         setContent {
             val settings by app.settings.flow.collectAsStateWithLifecycle(initialValue = AppSettings())
             AppTheme(settings.theme) {
@@ -67,6 +73,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+private fun ComponentActivity.handleShare(intent: android.content.Intent?) {
+    if (intent?.action == android.content.Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
+        val text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: return
+        CrashLog.note("Поделились ссылкой")
+        (application as App).sharedText.value = text
     }
 }
 

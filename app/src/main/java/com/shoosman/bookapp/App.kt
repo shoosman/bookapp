@@ -24,6 +24,9 @@ class App : Application() {
     lateinit var updater: Updater
         private set
 
+    /** Ссылка, которой поделились с Чтецом из браузера или другого приложения. */
+    val sharedText = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)

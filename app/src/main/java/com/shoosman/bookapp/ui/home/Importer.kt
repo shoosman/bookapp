@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -41,6 +42,8 @@ class Importer {
     var error by mutableStateOf<Pair<String, String?>?>(null)
     var progress by mutableStateOf<ImportProgress?>(null)
     var notice by mutableStateOf<String?>(null)
+    /** Окно «по ссылке или вручную»; null — закрыто, иначе текст для поля ссылки. */
+    var manual by mutableStateOf<String?>(null)
 
     fun open() {
         if (!busy) sheet = true
@@ -97,6 +100,12 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
                 modifier = Modifier.clickable { importer.sheet = false; pickText.launch(arrayOf("*/*")) },
             )
             ListItem(
+                headlineContent = { Text("По ссылке или вручную") },
+                supportingContent = { Text("Без файлов — в список «хочу прочитать» или «прочитано»") },
+                leadingContent = { Icon(Icons.Filled.Link, null) },
+                modifier = Modifier.clickable { importer.sheet = false; importer.manual = "" },
+            )
+            ListItem(
                 headlineContent = { Text("Аудиокнига — файлы") },
                 supportingContent = { Text("Выберите один или несколько файлов") },
                 leadingContent = { Icon(Icons.Filled.AudioFile, null) },
@@ -116,6 +125,17 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit) {
             )
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    importer.manual?.let { text ->
+        AddBookDialog(
+            initialText = text.ifBlank { null },
+            onDismiss = { importer.manual = null },
+            onSaved = { id ->
+                importer.manual = null
+                onOpenBook(id)
+            },
+        )
     }
 
     importer.progress?.let { ProgressDialog(it) }

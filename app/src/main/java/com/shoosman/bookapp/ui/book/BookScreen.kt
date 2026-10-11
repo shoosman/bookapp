@@ -27,6 +27,10 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -105,6 +109,9 @@ fun BookScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var annotationExpanded by remember { mutableStateOf(false) }
+    var editingNotes by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf<String?>(null) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     var progress by remember { mutableStateOf<ImportProgress?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -163,6 +170,14 @@ fun BookScreen(
 
             item { Column {
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
+                if (!b.hasText && !b.hasAudio) {
+                    Text(
+                        "У книги нет файлов — она хранится в вашем списке. Прикрепить текст или аудио можно ниже, в «Файлах книги».",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                }
                 Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (b.hasText) {
                         Button(onClick = { onRead(-1) }, modifier = Modifier.weight(1f)) {
@@ -212,6 +227,41 @@ fun BookScreen(
                             )
                         }
                     }
+                }
+
+                // Даты чтения
+                SectionTitle("Даты")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DateChip("Начал", b.startedAt) { picking = "start" }
+                    DateChip("Закончил", b.finishedAt) { picking = "finish" }
+                }
+
+                // Заметки
+                SectionTitle("Заметки")
+                Text(
+                    b.notes.ifBlank { "Мысли, цитаты, отзыв — нажмите, чтобы написать" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (b.notes.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { editingNotes = true }
+                        .padding(vertical = 6.dp),
+                )
+
+                if (b.sourceUrl.isNotBlank()) {
+                    SectionTitle("Ссылка")
+                    Text(
+                        b.sourceUrl.removePrefix("https://").removePrefix("http://").removePrefix("www.").take(60),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable {
+                            runCatching {
+                                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(b.sourceUrl)))
+                            }
+                        },
+                    )
                 }
             } }
 
@@ -272,7 +322,7 @@ fun BookScreen(
                             Text("Синхронизация", style = MaterialTheme.typography.titleSmall)
                             Text(
                                 if (anchors.isEmpty()) {
-                                    "Автоматически по главам и длительности. Если текст и аудио расходятся, в читалке нажмите на абзац и выберите «Сейчас звучит здесь»."
+                                    "Автоматически по главам и длительности. Если текст и аудио расходятся, остановите аудио, перейдите к тексту, задержите палец на нужном абзаце и выберите «Аудио остановилось здесь»."
                                 } else {
                                     "Ручных точек привязки: ${anchors.size}. Между ними позиция рассчитывается автоматически."
                                 },
@@ -317,42 +367,117 @@ fun BookScreen(
     }
 
     if (confirmDelete && b != null) {
+        val hasFiles = b.hasText || b.hasAudio
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Удалить книгу?") },
-            text = { Text("«${b.title}» удалится вместе с закладками и файлами книги, которые хранятся в приложении. Отменить это нельзя.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    if (app.player.ui.value.bookId == bookId) app.player.pause()
-                    repo.appScope.launch { repo.delete(bookId) }
-                    onBack()
-                }) { Text("Удалить") }
+            title = { Text("Удалить «${b.title}»?") },
+            text = {
+                Text(
+                    if (hasFiles) {
+                        "«Только файлы» — освободить место: текст и аудио удалятся, а книга останется в списке с полкой, оценкой, заметками и закладками.\n\n«Совсем» — книга исчезнет из библиотеки целиком. Отменить это нельзя."
+                    } else {
+                        "Книга исчезнет из библиотеки вместе с оценкой и заметками. Отменить это нельзя."
+                    },
+                )
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    if (hasFiles) {
+                        TextButton(onClick = {
+                            confirmDelete = false
+                            app.player.forget(bookId)
+                            repo.appScope.launch { repo.deleteFiles(bookId) }
+                        }) { Text("Только файлы") }
+                    }
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        app.player.forget(bookId)
+                        repo.appScope.launch { repo.delete(bookId) }
+                        onBack()
+                    }) { Text("Удалить совсем", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = { confirmDelete = false }) { Text("Отмена") }
+                }
+            },
         )
     }
 
     if (editing && b != null) {
         var title by remember { mutableStateOf(b.title) }
         var author by remember { mutableStateOf(b.author) }
+        var url by remember { mutableStateOf(b.sourceUrl) }
+        var annotation by remember { mutableStateOf(b.annotation) }
         AlertDialog(
             onDismissRequest = { editing = false },
-            title = { Text("Название и автор") },
+            title = { Text("О книге") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Название") })
                     OutlinedTextField(value = author, onValueChange = { author = it }, label = { Text("Автор") })
+                    OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Ссылка") }, singleLine = true)
+                    OutlinedTextField(value = annotation, onValueChange = { annotation = it }, label = { Text("Аннотация") }, maxLines = 6)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     editing = false
-                    scope.launch { repo.rename(bookId, title, author) }
+                    scope.launch { repo.updateInfo(bookId, title, author, url, annotation) }
                 }) { Text("Сохранить") }
             },
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Отмена") } },
         )
+    }
+
+    if (editingNotes && b != null) {
+        var text by remember { mutableStateOf(b.notes) }
+        AlertDialog(
+            onDismissRequest = { editingNotes = false },
+            title = { Text("Заметки") },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Мысли, цитаты, отзыв…") },
+                    minLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editingNotes = false
+                    scope.launch { repo.setNotes(bookId, text) }
+                }) { Text("Сохранить") }
+            },
+            dismissButton = { TextButton(onClick = { editingNotes = false }) { Text("Отмена") } },
+        )
+    }
+
+    val pickingWhat = picking
+    if (pickingWhat != null && b != null) {
+        val initial = if (pickingWhat == "start") b.startedAt else b.finishedAt
+        val state = rememberDatePickerState(initialSelectedDateMillis = initial.takeIf { it > 0 } ?: System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { picking = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ms = state.selectedDateMillis ?: 0L
+                    picking = null
+                    scope.launch {
+                        if (pickingWhat == "start") repo.setDates(bookId, ms, b.finishedAt) else repo.setDates(bookId, b.startedAt, ms)
+                    }
+                }) { Text("Готово") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    picking = null
+                    scope.launch {
+                        if (pickingWhat == "start") repo.setDates(bookId, 0, b.finishedAt) else repo.setDates(bookId, b.startedAt, 0)
+                    }
+                }) { Text("Убрать дату") }
+            },
+        ) { DatePicker(state = state) }
     }
 
     progress?.let { ProgressDialog(it) }
@@ -391,4 +516,16 @@ private fun Header(b: BookEntity, trackCount: Int) {
             }
         }
     }
+}
+
+@Composable
+private fun DateChip(label: String, date: Long, onClick: () -> Unit) {
+    androidx.compose.material3.AssistChip(
+        onClick = onClick,
+        label = {
+            Text(
+                if (date > 0) "$label: ${SimpleDateFormat("d MMM yyyy", Locale("ru")).format(Date(date))}" else "$label: —",
+            )
+        },
+    )
 }

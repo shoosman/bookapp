@@ -39,6 +39,15 @@ fun MainScreen(
     var shelf by rememberSaveable { mutableIntStateOf(SHELF_ALL) }
     val importer = remember { Importer() }
 
+    // Поделились ссылкой — открываем «Новую книгу» с ней.
+    val shared by App.instance.sharedText.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(shared) {
+        shared?.let {
+            importer.manual = it
+            App.instance.sharedText.value = null
+        }
+    }
+
     Scaffold(
         bottomBar = {
             Column {

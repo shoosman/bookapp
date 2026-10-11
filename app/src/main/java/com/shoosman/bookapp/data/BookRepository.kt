@@ -100,6 +100,7 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
                 totalChars = parsed.content.totalChars,
                 chapterCount = parsed.content.chapters.size,
                 readPos = 0,
+                textUpdatedAt = System.currentTimeMillis(),
             ),
         )
         deleteOriginals(listOf(uri), null, isAudio = false)
@@ -358,22 +359,79 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
     suspend fun saveAudioPos(bookId: Long, track: Int, posMs: Long, globalMs: Long) =
         dao.setAudioPos(bookId, track, posMs, globalMs, System.currentTimeMillis())
 
-    suspend fun setStatus(bookId: Long, status: Int) =
-        dao.setStatus(bookId, status, if (status == BookStatus.FINISHED) System.currentTimeMillis() else 0L)
+    /** Полка книги. Дата «начал» ставится при первом переходе в «Читаю», «закончил» — в «Прочитано». */
+    suspend fun setStatus(bookId: Long, status: Int) {
+        val b = dao.get(bookId) ?: return
+        val now = System.currentTimeMillis()
+        dao.update(
+            b.copy(
+                status = status,
+                startedAt = if (status == BookStatus.READING && b.startedAt == 0L) now else b.startedAt,
+                finishedAt = when (status) {
+                    BookStatus.FINISHED -> if (b.finishedAt > 0) b.finishedAt else now
+                    BookStatus.DROPPED -> b.finishedAt
+                    else -> 0L
+                },
+                shelfUpdatedAt = now,
+            ),
+        )
+    }
 
     /** При первом открытии книга с полки «Хочу прочитать» переезжает в «Читаю». */
     suspend fun markOpened(bookId: Long) {
         val b = dao.get(bookId) ?: return
-        if (b.status == BookStatus.WANT) dao.setStatus(bookId, BookStatus.READING, 0L)
+        if (b.status == BookStatus.WANT) setStatus(bookId, BookStatus.READING)
         dao.touch(bookId, System.currentTimeMillis())
     }
 
-    suspend fun setRating(bookId: Long, rating: Int) = dao.setRating(bookId, rating)
+    suspend fun setRating(bookId: Long, rating: Int) = dao.setRating(bookId, rating, System.currentTimeMillis())
+    suspend fun setNotes(bookId: Long, notes: String) = dao.setNotes(bookId, notes.trim(), System.currentTimeMillis())
     suspend fun setSpeed(bookId: Long, speed: Float) = dao.setSpeed(bookId, speed)
 
-    suspend fun rename(bookId: Long, title: String, author: String) {
+    suspend fun setDates(bookId: Long, startedAt: Long, finishedAt: Long) {
         val b = dao.get(bookId) ?: return
-        dao.update(b.copy(title = title.trim().ifBlank { b.title }, author = author.trim()))
+        dao.update(b.copy(startedAt = startedAt, finishedAt = finishedAt, shelfUpdatedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun updateInfo(bookId: Long, title: String, author: String, sourceUrl: String, annotation: String) {
+        val b = dao.get(bookId) ?: return
+        dao.update(
+            b.copy(
+                title = title.trim().ifBlank { b.title },
+                author = author.trim(),
+                sourceUrl = sourceUrl.trim(),
+                annotation = annotation.trim(),
+                metaUpdatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /** Книга без файлов — для списка прочитанного или «хочу прочитать». */
+    suspend fun createManual(info: BookInfo, status: Int): Long = withContext(Dispatchers.IO) {
+        val dir = newBookDir()
+        info.cover?.let { coverFile(dir).writeBytes(it) }
+        val now = System.currentTimeMillis()
+        dao.insert(
+            BookEntity(
+                title = info.title.trim().ifBlank { "Без названия" },
+                author = info.author.trim(),
+                annotation = info.annotation.trim(),
+                sourceUrl = info.url.trim(),
+                dir = dir.absolutePath,
+                coverPath = coverFile(dir).takeIf { it.exists() }?.absolutePath,
+                status = status,
+                startedAt = if (status == BookStatus.READING || status == BookStatus.FINISHED) now else 0L,
+                finishedAt = if (status == BookStatus.FINISHED) now else 0L,
+            ),
+        )
+    }
+
+    /** Заменить обложку (например, из ссылки). */
+    suspend fun setCover(bookId: Long, bytes: ByteArray) = withContext(Dispatchers.IO) {
+        val b = dao.get(bookId) ?: return@withContext
+        val f = coverFile(File(b.dir).apply { mkdirs() })
+        f.writeBytes(bytes)
+        dao.update(b.copy(coverPath = f.absolutePath, metaUpdatedAt = System.currentTimeMillis()))
     }
 
     suspend fun addBookmark(bookId: Long, charPos: Int, audioMs: Long, snippet: String) =
@@ -486,14 +544,38 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         }.filter { it.endMs > it.startMs }
     }
 
+    /**
+     * Удалить книгу совсем. Запись остаётся помеченной как удалённая, чтобы удаление
+     * дошло до облака и других устройств; файлы удаляются сразу.
+     */
     suspend fun delete(bookId: Long) = withContext(Dispatchers.IO) {
         val book = dao.get(bookId) ?: return@withContext
         dao.deleteTracks(bookId)
-        dao.deleteBookmarks(bookId)
-        dao.deleteAnchors(bookId)
-        dao.delete(bookId)
         if (cached?.first == book.textPath) cached = null
         File(book.dir).deleteRecursively()
+        val now = System.currentTimeMillis()
+        dao.update(
+            book.copy(
+                deleted = true, textPath = null, textFormat = null, coverPath = null,
+                audioTotalMs = 0, metaUpdatedAt = now, shelfUpdatedAt = now, textUpdatedAt = now,
+            ),
+        )
+    }
+
+    /** Удалить только файлы (текст и аудио), а книгу с оценкой, заметками и закладками оставить. */
+    suspend fun deleteFiles(bookId: Long) = withContext(Dispatchers.IO) {
+        val book = dao.get(bookId) ?: return@withContext
+        dao.deleteTracks(bookId)
+        if (cached?.first == book.textPath) cached = null
+        val dir = File(book.dir)
+        dir.listFiles()?.filter { it.name != "cover.img" }?.forEach { it.deleteRecursively() }
+        dao.update(
+            book.copy(
+                textPath = null, textFormat = null, totalChars = 0, chapterCount = 0,
+                audioTotalMs = 0, audioTrack = 0, audioPosMs = 0, audioGlobalMs = 0,
+                textUpdatedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     fun displayName(uri: Uri): String {
