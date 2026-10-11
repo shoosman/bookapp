@@ -18,9 +18,8 @@ android {
         versionCode = buildNumber
         versionName = "0.1.$buildNumber"
 
-        // Откуда приложение берёт обновления. Токен подставляется при сборке из секрета GitHub.
+        // Откуда приложение берёт обновления
         buildConfigField("String", "UPDATE_REPO", "\"shoosman/bookapp\"")
-        buildConfigField("String", "UPDATE_TOKEN", "\"${System.getenv("UPDATE_TOKEN") ?: ""}\"")
     }
 
     // Постоянный ключ подписи: благодаря ему новые версии ставятся поверх старых без потери данных.

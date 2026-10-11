@@ -43,9 +43,13 @@ class Updater(private val ctx: Context) {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
-    val currentVersion: String = runCatching {
-        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
-    }.getOrNull() ?: "0"
+    private val packageInfo = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0) }.getOrNull()
+
+    val currentVersion: String = packageInfo?.versionName ?: "0"
+
+    private val currentVersionCode: Long =
+        if (Build.VERSION.SDK_INT >= 28) packageInfo?.longVersionCode ?: 0L
+        else @Suppress("DEPRECATION") (packageInfo?.versionCode?.toLong() ?: 0L)
 
     /** Тихая проверка при запуске — не чаще раза в 12 часов, ошибки не показываем. */
     fun checkInBackground() {
@@ -104,66 +108,33 @@ class Updater(private val ctx: Context) {
     }
 
     // ---------------- сеть ----------------
+    // Схема: у репозитория есть релиз с постоянным тегом `latest`, в нём лежат
+    // version.json и chtets.apk. Ссылки на них не меняются от версии к версии.
+
+    private val base = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/latest"
 
     private fun fetchLatest(): Release? {
-        val conn = open("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest", "application/vnd.github+json")
-        try {
-            when (conn.responseCode) {
-                200 -> Unit
-                404 -> error(
-                    if (BuildConfig.UPDATE_TOKEN.isEmpty()) "Нет доступа к релизам: репозиторий приватный, а токен для обновлений не настроен"
-                    else "Релизы не найдены или у токена нет доступа к репозиторию",
-                )
-                401, 403 -> error("GitHub отказал в доступе (код ${conn.responseCode}). Возможно, токен истёк")
-                else -> error("GitHub ответил кодом ${conn.responseCode}")
-            }
-            val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-            val version = json.getString("tag_name").removePrefix("v")
-            if (!isNewer(version, currentVersion)) return null
-            val assets = json.getJSONArray("assets")
-            for (i in 0 until assets.length()) {
-                val a = assets.getJSONObject(i)
-                val name = a.getString("name")
-                if (name.endsWith(".apk")) {
-                    return Release(
-                        version = version,
-                        notes = json.optString("body").trim(),
-                        assetUrl = a.getString("url"),
-                        assetName = name,
-                        size = a.optLong("size"),
-                    )
-                }
-            }
-            return null
-        } finally {
-            conn.disconnect()
+        val text = get("$base/version.json?t=${System.currentTimeMillis()}") { conn ->
+            conn.inputStream.bufferedReader().use { it.readText() }
         }
+        val json = JSONObject(text)
+        val code = json.getLong("versionCode")
+        if (code <= currentVersionCode) return null
+        return Release(
+            version = json.optString("versionName", code.toString()),
+            notes = json.optString("notes").trim(),
+            assetUrl = "$base/chtets.apk?t=${System.currentTimeMillis()}",
+            assetName = "chtets.apk",
+            size = json.optLong("size", 0L),
+        )
     }
 
     private fun downloadApk(release: Release, onProgress: (Float?) -> Unit): File {
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val target = File(dir, release.assetName)
-
-        // API отдаёт файл перенаправлением на хранилище. Ключ туда не передаём — его там не ждут.
-        var conn = open(release.assetUrl, "application/octet-stream")
-        conn.instanceFollowRedirects = false
-        var hops = 0
-        while (conn.responseCode in 300..399) {
-            val location = conn.getHeaderField("Location") ?: error("Пустое перенаправление")
-            conn.disconnect()
-            conn = (URL(location).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                setRequestProperty("User-Agent", "Chtets")
-            }
-            if (++hops > 5) error("Слишком много перенаправлений")
-        }
-        if (conn.responseCode != 200) error("код ${conn.responseCode}")
-
-        val total = conn.contentLengthLong.takeIf { it > 0 } ?: release.size
-        try {
+        get(release.assetUrl) { conn ->
+            val total = conn.contentLengthLong.takeIf { it > 0 } ?: release.size
             conn.inputStream.use { input ->
                 target.outputStream().use { out ->
                     val buf = ByteArray(1 shl 16)
@@ -181,22 +152,38 @@ class Updater(private val ctx: Context) {
                     }
                 }
             }
-        } finally {
-            conn.disconnect()
+            if (total > 0 && target.length() != total) error("файл скачался не полностью")
         }
-        if (release.size > 0 && target.length() != release.size) error("файл скачался не полностью")
         return target
     }
 
-    private fun open(url: String, accept: String): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            setRequestProperty("Accept", accept)
-            setRequestProperty("User-Agent", "Chtets")
-            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            if (BuildConfig.UPDATE_TOKEN.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${BuildConfig.UPDATE_TOKEN}")
+    /**
+     * GET с ручным проходом редиректов: GitHub отдаёт файлы релиза через 302 на другой домен,
+     * а HttpURLConnection сам между доменами не переходит.
+     */
+    private fun <T> get(url: String, read: (HttpURLConnection) -> T): T {
+        var current = url
+        repeat(6) {
+            val conn = (URL(current).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                useCaches = false
+                setRequestProperty("User-Agent", "Chtets")
+            }
+            try {
+                when (val code = conn.responseCode) {
+                    in 300..399 -> current = URL(URL(current), conn.getHeaderField("Location") ?: error("пустой редирект")).toString()
+                    200 -> return read(conn)
+                    404 -> error("на GitHub пока нет релиза с обновлениями")
+                    else -> error("GitHub ответил кодом $code")
+                }
+            } finally {
+                conn.disconnect()
+            }
         }
+        error("слишком много перенаправлений")
+    }
 
     // ---------------- установка ----------------
 
@@ -232,20 +219,6 @@ class Updater(private val ctx: Context) {
             pendingApk = null
             _state.value = UpdateState.Idle
             install(f)
-        }
-    }
-
-    companion object {
-        /** 0.1.12 новее 0.1.9 */
-        fun isNewer(candidate: String, current: String): Boolean {
-            val a = candidate.split('.').map { it.toIntOrNull() ?: 0 }
-            val b = current.split('.').map { it.toIntOrNull() ?: 0 }
-            for (i in 0 until maxOf(a.size, b.size)) {
-                val x = a.getOrElse(i) { 0 }
-                val y = b.getOrElse(i) { 0 }
-                if (x != y) return x > y
-            }
-            return false
         }
     }
 }
