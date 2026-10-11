@@ -141,17 +141,17 @@ fun BookScreen(
         }
     }
 
-    val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runTask(false) { p -> repo.attachText(bookId, uri, p) }
-    }
-    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) runTask(true) { p -> repo.attachAudio(bookId, uris, p) }
+    // Любые файлы — текст заменит текст книги, аудио — аудио; архивы разбираются сами
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) runTask(true) { p -> repo.importFiles(uris, bookId, p).notice }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) runTask(true) { p -> repo.attachAudioTree(bookId, uri, p) }
     }
 
     val b = book
+    var confetti by remember { mutableStateOf(0) }
+    com.shoosman.bookapp.ui.common.Confetti(confetti)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -199,6 +199,23 @@ fun BookScreen(
                             color = if (status.notFound) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                         )
                     }
+                    }
+                }
+            }
+
+            // Аннотация — сразу под обложкой
+            if (b.annotation.isNotBlank()) {
+                item {
+                    Column(Modifier.padding(top = 14.dp).clickable { annotationExpanded = !annotationExpanded }) {
+                        Text(
+                            b.annotation,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = if (annotationExpanded) Int.MAX_VALUE else 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!annotationExpanded && b.annotation.length > 300) {
+                            Text("Читать полностью", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
                 }
             }
@@ -270,13 +287,16 @@ fun BookScreen(
                     BookStatus.ordered.forEach { s ->
                         FilterChip(
                             selected = b.status == s,
-                            onClick = { scope.launch { repo.setStatus(bookId, s) } },
+                            onClick = {
+                                if (s == BookStatus.FINISHED && b.status != BookStatus.FINISHED && settings.confetti) confetti++
+                                scope.launch { repo.setStatus(bookId, s) }
+                            },
                             label = { Text(BookStatus.label(s)) },
                         )
                     }
                 }
                 SectionTitle("Моя оценка")
-                Row {
+                Row(Modifier.padding(start = 0.dp)) {
                     for (i in 1..5) {
                         IconButton(onClick = { scope.launch { repo.setRating(bookId, if (b.rating == i) 0 else i) } }) {
                             Icon(
@@ -308,7 +328,7 @@ fun BookScreen(
                 )
 
                 if (b.sourceUrl.isNotBlank()) {
-                    SectionTitle("Ссылка")
+                    SectionTitle("Страница книги")
                     Text(
                         b.sourceUrl.removePrefix("https://").removePrefix("http://").removePrefix("www.").take(60),
                         style = MaterialTheme.typography.bodyMedium,
@@ -324,19 +344,6 @@ fun BookScreen(
                 }
             } }
 
-            if (b.annotation.isNotBlank()) {
-                item { Column {
-                    SectionTitle("Аннотация")
-                    Text(
-                        b.annotation,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = if (annotationExpanded) Int.MAX_VALUE else 5,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { annotationExpanded = !annotationExpanded },
-                    )
-                } }
-            }
-
             item { Column {
                 SectionTitle("Файлы книги")
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
@@ -348,11 +355,8 @@ fun BookScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        OutlinedButton(onClick = { pickText.launch(arrayOf("*/*")) }, modifier = Modifier.padding(top = 8.dp)) {
-                            Text(if (b.hasText) "Заменить текст" else "Добавить текст")
-                        }
 
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(12.dp))
                         Text("Аудио", style = MaterialTheme.typography.titleSmall)
                         Text(
                             if (b.hasAudio) "${tracks.size} ${plural(tracks.size, "файл", "файла", "файлов")} · ${fmtDuration(b.audioTotalMs)}"
@@ -360,10 +364,16 @@ fun BookScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { pickAudio.launch(arrayOf("audio/*")) }) { Text("Файлы") }
+                        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.material3.Button(onClick = { pickFiles.launch(arrayOf("*/*")) }) { Text("Добавить файлы") }
                             OutlinedButton(onClick = { pickFolder.launch(null) }) { Text("Папка") }
                         }
+                        Text(
+                            "Текст, аудио или архив — Чтец сам разберётся. Новый текст заменит старый, новое аудио — старое.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
                         if (tracks.any { repo.isExternal(it.uri) }) {
                             Text(
                                 "Аудио лежит вне приложения: если удалить файлы, оно перестанет играть.",

@@ -94,14 +94,16 @@ fun MainScreen(
     ) { padding ->
         Box(Modifier.padding(padding)) {
             when (tab) {
-                0 -> HomeTab(
+                0 -> androidx.compose.runtime.CompositionLocalProvider(
+                    LocalTileScale provides when (settings.tileSize) { "small" -> 0.8f; "large" -> 1.3f; else -> 1f },
+                ) { HomeTab(
                     books = books,
                     importer = importer,
                     onOpenBook = onOpenBook,
                     onRead = onRead,
                     onListen = onListen,
                     onShelf = { shelf = it; tab = 1 },
-                )
+                ) }
                 1 -> LibraryTab(
                     books = books,
                     shelf = shelf,

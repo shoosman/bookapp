@@ -25,6 +25,23 @@ data class AppSettings(
     val pageMode: Boolean = true,
     /** Яркость в читалке 0..1, -1 — как в системе */
     val brightness: Float = -1f,
+    // --- внешний вид ---
+    /** Акцентный цвет: pink, raspberry, lilac, lavender, mint, ocean, sunset, lemon */
+    val accent: String = "pink",
+    /** Шрифт интерфейса: system, serif, mono, cursive */
+    val uiFont: String = "system",
+    /** Скругления: sharp, normal, round */
+    val corners: String = "round",
+    /** Масштаб интерфейса (текст и элементы): 0.9 … 1.2 */
+    val uiScale: Float = 1f,
+    /** Фон плеера: plain или cover (цвета обложки) */
+    val playerBg: String = "cover",
+    /** Размер обложек на главной: small, normal, large */
+    val tileSize: String = "normal",
+    /** Конфетти, когда книга отмечена прочитанной */
+    val confetti: Boolean = true,
+    /** Иконка приложения */
+    val appIcon: String = "headphones_book",
 )
 
 private val Context.dataStore by preferencesDataStore("settings")
@@ -41,6 +58,14 @@ class SettingsStore(private val ctx: Context) {
         val keepScreenOn = booleanPreferencesKey("keepScreenOn")
         val pageMode = booleanPreferencesKey("pageMode")
         val brightness = floatPreferencesKey("brightness")
+        val accent = stringPreferencesKey("accent")
+        val uiFont = stringPreferencesKey("uiFont")
+        val corners = stringPreferencesKey("corners")
+        val uiScale = floatPreferencesKey("uiScale")
+        val playerBg = stringPreferencesKey("playerBg")
+        val tileSize = stringPreferencesKey("tileSize")
+        val confetti = booleanPreferencesKey("confetti")
+        val appIcon = stringPreferencesKey("appIcon")
     }
 
     val flow: Flow<AppSettings> = ctx.dataStore.data.map { it.toSettings() }
@@ -58,6 +83,14 @@ class SettingsStore(private val ctx: Context) {
             prefs[K.keepScreenOn] = s.keepScreenOn
             prefs[K.pageMode] = s.pageMode
             prefs[K.brightness] = s.brightness
+            prefs[K.accent] = s.accent
+            prefs[K.uiFont] = s.uiFont
+            prefs[K.corners] = s.corners
+            prefs[K.uiScale] = s.uiScale
+            prefs[K.playerBg] = s.playerBg
+            prefs[K.tileSize] = s.tileSize
+            prefs[K.confetti] = s.confetti
+            prefs[K.appIcon] = s.appIcon
         }
     }
 
@@ -74,6 +107,14 @@ class SettingsStore(private val ctx: Context) {
             keepScreenOn = this[K.keepScreenOn] ?: d.keepScreenOn,
             pageMode = this[K.pageMode] ?: d.pageMode,
             brightness = this[K.brightness] ?: d.brightness,
+            accent = this[K.accent] ?: d.accent,
+            uiFont = this[K.uiFont] ?: d.uiFont,
+            corners = this[K.corners] ?: d.corners,
+            uiScale = this[K.uiScale] ?: d.uiScale,
+            playerBg = this[K.playerBg] ?: d.playerBg,
+            tileSize = this[K.tileSize] ?: d.tileSize,
+            confetti = this[K.confetti] ?: d.confetti,
+            appIcon = this[K.appIcon] ?: d.appIcon,
         )
     }
 }

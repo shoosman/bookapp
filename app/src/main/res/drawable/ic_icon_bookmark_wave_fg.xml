@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Иконка «Закладка-звук»: рисунок -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M37,26 H71 V82 L54,70 L37,82 Z" android:fillColor="#FF5FA2" />
+    <path android:pathData="M44.5,44.0h0.0a2.0,2.0 0 0 1 2.0,2.0v8.0a2.0,2.0 0 0 1 -2.0,2.0h-0.0a2.0,2.0 0 0 1 -2.0,-2.0v-8.0a2.0,2.0 0 0 1 2.0,-2.0z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M51.0,37.0h0.0a2.0,2.0 0 0 1 2.0,2.0v22.0a2.0,2.0 0 0 1 -2.0,2.0h-0.0a2.0,2.0 0 0 1 -2.0,-2.0v-22.0a2.0,2.0 0 0 1 2.0,-2.0z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M57.5,41.0h0.0a2.0,2.0 0 0 1 2.0,2.0v14.0a2.0,2.0 0 0 1 -2.0,2.0h-0.0a2.0,2.0 0 0 1 -2.0,-2.0v-14.0a2.0,2.0 0 0 1 2.0,-2.0z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M64.0,46.0h0.0a2.0,2.0 0 0 1 2.0,2.0v4.0a2.0,2.0 0 0 1 -2.0,2.0h-0.0a2.0,2.0 0 0 1 -2.0,-2.0v-4.0a2.0,2.0 0 0 1 2.0,-2.0z" android:fillColor="#FFFFFF" />
+</vector>

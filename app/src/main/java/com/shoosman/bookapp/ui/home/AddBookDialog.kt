@@ -76,8 +76,8 @@ import kotlinx.coroutines.launch
 import org.jsoup.UnsupportedMimeTypeException
 
 /** Файлы, прикреплённые в окне «Новая книга». */
-class AttachedFiles(val text: Uri?, val audio: List<Uri>, val audioTree: Uri?) {
-    val isEmpty get() = text == null && audio.isEmpty() && audioTree == null
+class AttachedFiles(val files: List<Uri>, val audioTree: Uri?) {
+    val isEmpty get() = files.isEmpty() && audioTree == null
 }
 
 /**
@@ -110,17 +110,16 @@ fun AddBookDialog(
     var saving by remember { mutableStateOf(false) }
     var fileLink by remember { mutableStateOf(false) }
 
-    var textUri by remember { mutableStateOf<Uri?>(null) }
-    var audioUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var picked by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var audioTree by remember { mutableStateOf<Uri?>(null) }
-    val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if (it != null) textUri = it }
-    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
-        if (it.isNotEmpty()) { audioUris = it; audioTree = null }
+    // Любые файлы — текст, аудио, архив: что есть что, Чтец разберёт сам
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+        if (it.isNotEmpty()) picked = (picked + it).distinct()
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
-        if (it != null) { audioTree = it; audioUris = emptyList() }
+        if (it != null) audioTree = it
     }
-    val files = AttachedFiles(textUri, audioUris, audioTree)
+    val files = AttachedFiles(picked, audioTree)
 
     fun load() {
         if (link.isBlank() || loading) return
@@ -283,27 +282,18 @@ fun AddBookDialog(
                 Text("Файлы", style = MaterialTheme.typography.titleSmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip(
-                        onClick = { pickText.launch(arrayOf("*/*")) },
-                        label = { Text("Текст") },
+                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        label = { Text("Файлы") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) },
                     )
                     AssistChip(
-                        onClick = { pickAudio.launch(arrayOf("audio/*")) },
-                        label = { Text("Аудио — файлы") },
-                        leadingIcon = { Icon(Icons.Filled.AudioFile, null, Modifier.size(18.dp)) },
-                    )
-                    AssistChip(
                         onClick = { pickFolder.launch(null) },
-                        label = { Text("Аудио — папка") },
+                        label = { Text("Папка") },
                         leadingIcon = { Icon(Icons.Filled.Folder, null, Modifier.size(18.dp)) },
                     )
                 }
-                textUri?.let { u ->
-                    FileChip("Текст: " + repo.displayName(u)) { textUri = null }
-                }
-                if (audioUris.isNotEmpty()) {
-                    val first = repo.displayName(audioUris.first())
-                    FileChip(if (audioUris.size == 1) "Аудио: $first" else "Аудио: ${audioUris.size} файлов, начиная с $first") { audioUris = emptyList() }
+                picked.forEach { u ->
+                    FileChip(repo.displayName(u)) { picked = picked - u }
                 }
                 audioTree?.let { t ->
                     FileChip("Папка: " + (DocumentFile.fromTreeUri(ctx, t)?.name ?: "аудио")) { audioTree = null }

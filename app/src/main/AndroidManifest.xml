@@ -11,8 +11,8 @@
     <application
         android:name=".App"
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_headphones_book"
+        android:roundIcon="@mipmap/ic_launcher_headphones_book"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.App">
@@ -22,10 +22,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- Значок на рабочем столе — через ярлыки ниже: так иконку можно менять в настройках -->
             <!-- «Поделиться» ссылкой на книгу из браузера -->
             <intent-filter android:label="Добавить в Чтец">
                 <action android:name="android.intent.action.SEND" />
@@ -33,6 +30,73 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- Варианты иконки: включён ровно один (Настройки → Внешний вид → Иконка) -->
+        <activity-alias
+            android:name=".Icon_headphones_book"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_headphones_book"
+            android:roundIcon="@mipmap/ic_launcher_headphones_book"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Icon_bookmark_wave"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_bookmark_wave"
+            android:roundIcon="@mipmap/ic_launcher_bookmark_wave"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Icon_letter_ch"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_letter_ch"
+            android:roundIcon="@mipmap/ic_launcher_letter_ch"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Icon_cat_reader"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cat_reader"
+            android:roundIcon="@mipmap/ic_launcher_cat_reader"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Icon_stack_pink"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_stack_pink"
+            android:roundIcon="@mipmap/ic_launcher_stack_pink"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".player.PlaybackService"

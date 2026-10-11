@@ -82,11 +82,9 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: 
         }
     }
 
-    val pickText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) startImport { p -> repo.createFromText(uri, p) }
-    }
-    val pickAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) startImport { p -> repo.createFromAudio(uris, p) }
+    // Любые файлы: текст, аудио, архивы — Чтец сам разберётся, что пришло
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) startImport { p -> repo.importFiles(uris, null, p) }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) startImport { p -> repo.createFromAudioTree(uri, p) }
@@ -100,10 +98,16 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: 
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
             ListItem(
-                headlineContent = { Text("Текст книги") },
-                supportingContent = { Text("FB2, EPUB, TXT, DOCX, HTML, ZIP") },
+                headlineContent = { Text("Файлы") },
+                supportingContent = { Text("Текст, аудио или архив — можно сразу несколько. Текст и аудио одной книги объединятся") },
                 leadingContent = { Icon(Icons.AutoMirrored.Filled.MenuBook, null) },
-                modifier = Modifier.clickable { importer.sheet = false; pickText.launch(arrayOf("*/*")) },
+                modifier = Modifier.clickable { importer.sheet = false; pickFiles.launch(arrayOf("*/*")) },
+            )
+            ListItem(
+                headlineContent = { Text("Папка") },
+                supportingContent = { Text("Аудиокнига из папки — все файлы по порядку") },
+                leadingContent = { Icon(Icons.Filled.Folder, null) },
+                modifier = Modifier.clickable { importer.sheet = false; pickFolder.launch(null) },
             )
             ListItem(
                 headlineContent = { Text("По ссылке или вручную") },
@@ -116,18 +120,6 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: 
                 supportingContent = { Text("Встроенный браузер: входите на сайт, нажимаете «Скачать» — книга в Чтеце") },
                 leadingContent = { Icon(Icons.Filled.Public, null) },
                 modifier = Modifier.clickable { importer.sheet = false; onOpenBrowser(null) },
-            )
-            ListItem(
-                headlineContent = { Text("Аудиокнига — файлы") },
-                supportingContent = { Text("Выберите один или несколько файлов") },
-                leadingContent = { Icon(Icons.Filled.AudioFile, null) },
-                modifier = Modifier.clickable { importer.sheet = false; pickAudio.launch(arrayOf("audio/*")) },
-            )
-            ListItem(
-                headlineContent = { Text("Аудиокнига — папка") },
-                supportingContent = { Text("Все аудиофайлы из папки по порядку") },
-                leadingContent = { Icon(Icons.Filled.Folder, null) },
-                modifier = Modifier.clickable { importer.sheet = false; pickFolder.launch(null) },
             )
             Text(
                 "Файлы переносятся в приложение: после добавления оригинал удаляется с телефона. Текст и аудио одной книги объединяются на её странице.",
@@ -149,7 +141,7 @@ fun ImporterHost(importer: Importer, onOpenBook: (Long) -> Unit, onOpenBrowser: 
             },
             onSaveWithFiles = { info, status, files ->
                 importer.manual = null
-                startImport { p -> repo.createWithFiles(info, status, files.text, files.audio, files.audioTree, p) }
+                startImport { p -> repo.createWithFiles(info, status, files.files, files.audioTree, p) }
             },
             onDownload = { url, status ->
                 importer.manual = null

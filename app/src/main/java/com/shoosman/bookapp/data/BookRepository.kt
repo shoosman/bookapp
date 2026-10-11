@@ -460,22 +460,18 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
     suspend fun createWithFiles(
         info: BookInfo,
         status: Int,
-        text: Uri?,
-        audio: List<Uri>,
+        files: List<Uri>,
         audioTree: Uri?,
         onProgress: OnProgress,
     ): ImportResult {
         val fallbackName = withContext(Dispatchers.IO) {
             audioTree?.let { DocumentFile.fromTreeUri(ctx, it)?.name }
-                ?: audio.firstOrNull()?.let { displayName(it).substringBeforeLast('.') }
+                ?: files.firstOrNull()?.let { displayName(it).substringBeforeLast('.') }
         }
         val id = createManual(info, status)
         val notices = ArrayList<String>()
-        if (text != null) attachText(id, text, onProgress)?.let { notices.add(it) }
-        when {
-            audioTree != null -> attachAudioTree(id, audioTree, onProgress)?.let { notices.add(it) }
-            audio.isNotEmpty() -> attachAudio(id, audio, onProgress)?.let { notices.add(it) }
-        }
+        if (files.isNotEmpty()) importFiles(files, id, onProgress).notice?.let { notices.add(it) }
+        if (audioTree != null) attachAudioTree(id, audioTree, onProgress)?.let { notices.add(it) }
         // Название, введённое вручную или со страницы, важнее названия из файла.
         withContext(Dispatchers.IO) {
             val b = dao.get(id) ?: return@withContext
@@ -488,6 +484,75 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
     }
 
     enum class FileKind { TEXT, AUDIO, AUDIO_ZIP, UNKNOWN }
+
+    /** Что за файл выбрал пользователь — по имени и типу (ZIP разбирается отдельно). */
+    private fun classify(uri: Uri): String {
+        val name = displayName(uri).lowercase()
+        val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull().orEmpty()
+        val ext = name.substringAfterLast('.', "")
+        return when {
+            name.endsWith(".fb2.zip") -> "text"
+            ext == "zip" || mime == "application/zip" -> "zip"
+            ext in AUDIO_EXT || mime.startsWith("audio/") -> "audio"
+            else -> "text"
+        }
+    }
+
+    /**
+     * Любые выбранные файлы: Чтец сам разбирается, где текст, где аудио, где архив.
+     * [attachTo] — добавить к этой книге; null — новая книга (текст и аудио объединяются в одну).
+     */
+    suspend fun importFiles(uris: List<Uri>, attachTo: Long?, onProgress: OnProgress): ImportResult = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) error("Файлы не выбраны")
+        val groups = uris.groupBy { classify(it) }
+        val texts = groups["text"].orEmpty()
+        val audio = groups["audio"].orEmpty()
+        val zips = groups["zip"].orEmpty()
+        val notices = ArrayList<String>()
+        var bookId = attachTo
+        var extraBooks = 0
+
+        // Текст: первый — в эту книгу, остальные — отдельными книгами
+        texts.forEachIndexed { i, uri ->
+            if (i == 0) {
+                if (bookId == null) {
+                    val r = createFromText(uri, onProgress)
+                    bookId = r.bookId
+                    r.notice?.let { notices.add(it) }
+                } else {
+                    attachText(bookId!!, uri, onProgress)?.let { notices.add(it) }
+                }
+            } else {
+                createFromText(uri, onProgress).notice?.let { notices.add(it) }
+                extraBooks++
+            }
+        }
+        // Аудио — одной аудиокнигой (или к той же книге, что и текст)
+        if (audio.isNotEmpty()) {
+            if (bookId == null) {
+                val r = createFromAudio(audio, onProgress)
+                bookId = r.bookId
+                r.notice?.let { notices.add(it) }
+            } else {
+                attachAudio(bookId!!, audio, onProgress)?.let { notices.add(it) }
+            }
+        }
+        // Архивы: внутри может быть и книга, и аудио — разбирает importDownloaded
+        for (z in zips) {
+            val name = displayName(z)
+            val tmpDir = File(ctx.cacheDir, "import-" + System.currentTimeMillis()).apply { mkdirs() }
+            val tmp = File(tmpDir, sanitize(name))
+            onProgress(ImportProgress("Читаю архив «$name»…", null))
+            (ctx.contentResolver.openInputStream(z) ?: error("Не удалось открыть $name")).use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            val r = importDownloaded(tmp, name, "application/zip", bookId, onProgress)
+            if (bookId == null) bookId = r.bookId
+            r.notice?.let { notices.add(it) }
+            tmpDir.deleteRecursively()
+            deleteOriginals(listOf(z), null, isAudio = false)?.let { notices.add(it) }
+        }
+        if (extraBooks > 0) notices.add("Добавлено ещё книг: $extraBooks — каждый текстовый файл стал отдельной книгой.")
+        ImportResult(bookId ?: error("Не удалось добавить файлы"), notices.distinct().joinToString("\n\n").ifBlank { null })
+    }
 
     /** Что за файл скачали: текст книги, аудио или архив с аудио. */
     fun kindOf(file: File, name: String, mime: String?): FileKind {

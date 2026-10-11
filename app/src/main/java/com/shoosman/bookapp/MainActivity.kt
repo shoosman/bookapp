@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
         handleShare(intent)
         setContent {
             val settings by app.settings.flow.collectAsStateWithLifecycle(initialValue = AppSettings())
-            AppTheme(settings.theme) {
+            AppTheme(settings) {
                 val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
                 LaunchedEffect(Unit) {
                     app.player.connect()

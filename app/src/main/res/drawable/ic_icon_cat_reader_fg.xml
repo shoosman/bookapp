@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Иконка «Котик-чтец»: рисунок -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M33,52 L34,30 L47,42 C51,41 57,41 61,42 L74,30 L75,52 C75,66 66,75 54,75 C42,75 33,66 33,52 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M29,54 C29,36 40,26 54,26 C68,26 79,36 79,54" android:strokeColor="#B0125B" android:strokeWidth="5" android:strokeLineCap="round" />
+    <path android:pathData="M30.0,49.0h0.0a5.0,5.0 0 0 1 5.0,5.0v6.0a5.0,5.0 0 0 1 -5.0,5.0h-0.0a5.0,5.0 0 0 1 -5.0,-5.0v-6.0a5.0,5.0 0 0 1 5.0,-5.0z" android:fillColor="#B0125B" />
+    <path android:pathData="M78.0,49.0h0.0a5.0,5.0 0 0 1 5.0,5.0v6.0a5.0,5.0 0 0 1 -5.0,5.0h-0.0a5.0,5.0 0 0 1 -5.0,-5.0v-6.0a5.0,5.0 0 0 1 5.0,-5.0z" android:fillColor="#B0125B" />
+    <path android:pathData="M44,53 q3,-3 6,0" android:strokeColor="#3B1238" android:strokeWidth="2.6" android:strokeLineCap="round" />
+    <path android:pathData="M58,53 q3,-3 6,0" android:strokeColor="#3B1238" android:strokeWidth="2.6" android:strokeLineCap="round" />
+    <path android:pathData="M52,60 h4 l-2,2.5 z" android:fillColor="#FF5FA2" />
+    <path android:pathData="M40,70 C46,66 51,67 54,70 L54,84 C51,81 46,80 40,83 Z" android:fillColor="#FFE3F0" />
+    <path android:pathData="M68,70 C62,66 57,67 54,70 L54,84 C57,81 62,80 68,83 Z" android:fillColor="#FFD0E6" />
+</vector>

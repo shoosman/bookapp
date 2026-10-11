@@ -62,6 +62,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -142,7 +143,30 @@ fun PlayerScreen(
     }
 
     val b = book
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // Фон в цветах обложки: главный цвет картинки сверху плавно переходит в фон темы
+    val bgColor = MaterialTheme.colorScheme.background
+    val coverColor by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.Color?>(null, b?.coverPath, settings.playerBg) {
+        value = if (settings.playerBg != "cover") null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            b?.coverPath?.let { path ->
+                runCatching {
+                    val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 }
+                    val bmp = android.graphics.BitmapFactory.decodeFile(path, opts) ?: return@runCatching null
+                    val p = androidx.palette.graphics.Palette.from(bmp).generate()
+                    (p.darkVibrantSwatch ?: p.vibrantSwatch ?: p.dominantSwatch)?.rgb
+                }.getOrNull()
+            }
+        }?.let { androidx.compose.ui.graphics.Color(it) }
+    }
+    val dark = bgColor.luminance() < 0.5f
+    val bgModifier = coverColor?.let { c ->
+        Modifier.background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to androidx.compose.ui.graphics.lerp(bgColor, c, if (dark) 0.6f else 0.35f),
+                0.75f to bgColor,
+            ),
+        )
+    } ?: Modifier.background(bgColor)
+    Box(Modifier.fillMaxSize().then(bgModifier)) {
         if (b != null) {
             Column(
                 Modifier

@@ -56,17 +56,25 @@ import kotlin.math.roundToInt
 fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
     val store = App.instance.settings
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
-    val version = remember {
-        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
-    }
+    var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
+    val titles = mapOf(
+        "appearance" to "Внешний вид",
+        "reader" to "Читалка",
+        "player" to "Плеер",
+        "library" to "Обложки, жанры, циклы",
+        "about" to "О приложении",
+    )
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Настройки") },
+                title = { Text(page?.let { titles[it] } ?: "Настройки") },
                 navigationIcon = {
-                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                    when {
+                        page != null -> IconButton(onClick = { page = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                        onBack != null -> IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                    }
                 },
             )
         },
@@ -79,60 +87,113 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
         ) {
-            SectionTitle("Текст")
-            TextSettingsPanel(settings)
+            when (page) {
+                null -> {
+                    SectionTitle("Тема")
+                    ThemeChips(settings) { key -> scope.launch { store.update { it.copy(theme = key) } } }
 
-            SectionTitle("Облако")
-            SyncSection()
+                    SectionTitle("Облако")
+                    SyncSection()
 
-            SectionTitle("Обложки, жанры, циклы")
-            CoversSection()
+                    SectionTitle("Обновления")
+                    Text("Установлена версия ${App.instance.updater.currentVersion}", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = { App.instance.updater.check(manual = true) }, modifier = Modifier.padding(top = 8.dp)) {
+                        Text("Проверить обновления")
+                    }
 
-            SectionTitle("Плеер")
-            Text("Перемотка назад", style = MaterialTheme.typography.bodyMedium)
-            ChipRow(listOf(5, 10, 15, 30), settings.skipBackSec, { "$it с" }) { v ->
-                scope.launch { store.update { it.copy(skipBackSec = v) } }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Перемотка вперёд", style = MaterialTheme.typography.bodyMedium)
-            ChipRow(listOf(10, 15, 30, 60), settings.skipForwardSec, { "$it с" }) { v ->
-                scope.launch { store.update { it.copy(skipForwardSec = v) } }
-            }
+                    Spacer(Modifier.height(20.dp))
+                    androidx.compose.material3.HorizontalDivider()
+                    MenuRow("Внешний вид", "Цвет, иконка, шрифт, скругления, размер, фон плеера") { page = "appearance" }
+                    MenuRow("Читалка", "Шрифт и интервал текста, страницы или прокрутка, яркость") { page = "reader" }
+                    MenuRow("Плеер", "Перемотка: ${settings.skipBackSec} с назад, ${settings.skipForwardSec} с вперёд") { page = "player" }
+                    MenuRow("Обложки, жанры, циклы", "Дополнить книги с Литреса, Author.Today и Фантлаба") { page = "library" }
+                    MenuRow("О приложении", "Версия, отчёт об ошибке") { page = "about" }
+                }
 
-            SectionTitle("Обновления")
-            Text("Установлена версия ${App.instance.updater.currentVersion}", style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(onClick = { App.instance.updater.check(manual = true) }, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Проверить обновления")
-            }
-            Text(
-                "Приложение само проверяет новые версии раз в 12 часов.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+                "appearance" -> AppearanceSettings(settings)
 
-            SectionTitle("О приложении")
-            Text(
-                "Чтец $version\nЧиталка и аудиокниги в одном месте с переключением между текстом и звуком.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            var report by remember { mutableStateOf<String?>(null) }
-            OutlinedButton(
-                onClick = { report = CrashLog.last() ?: "Сбоев пока не было 🎉" },
-                modifier = Modifier.padding(top = 12.dp),
-            ) { Text("Отчёт о последней ошибке") }
-            report?.let {
-                ReportDialog("Последняя ошибка", "Скопируйте и пришлите этот текст, если что-то работает не так.", it) { report = null }
+                "reader" -> {
+                    Spacer(Modifier.height(8.dp))
+                    TextSettingsPanel(settings, showTheme = false)
+                }
+
+                "player" -> {
+                    SectionTitle("Перемотка назад")
+                    ChipRow(listOf(5, 10, 15, 30), settings.skipBackSec, { "$it с" }) { v ->
+                        scope.launch { store.update { it.copy(skipBackSec = v) } }
+                    }
+                    SectionTitle("Перемотка вперёд")
+                    ChipRow(listOf(10, 15, 30, 60), settings.skipForwardSec, { "$it с" }) { v ->
+                        scope.launch { store.update { it.copy(skipForwardSec = v) } }
+                    }
+                    Text(
+                        "Те же шаги — у кнопок в шторке, на экране блокировки, в машине и на наушниках.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+
+                "library" -> {
+                    Spacer(Modifier.height(8.dp))
+                    CoversSection()
+                }
+
+                "about" -> {
+                    val ctx = LocalContext.current
+                    val version = remember {
+                        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Чтец $version\nЧиталка и аудиокниги в одном месте с переключением между текстом и звуком.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    var report by remember { mutableStateOf<String?>(null) }
+                    OutlinedButton(
+                        onClick = { report = CrashLog.last() ?: "Сбоев пока не было 🎉" },
+                        modifier = Modifier.padding(top = 12.dp),
+                    ) { Text("Отчёт о последней ошибке") }
+                    report?.let {
+                        ReportDialog("Последняя ошибка", "Скопируйте и пришлите этот текст, если что-то работает не так.", it) { report = null }
+                    }
+                }
             }
             Spacer(Modifier.height(40.dp))
         }
     }
 }
 
+@Composable
+private fun MenuRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    androidx.compose.material3.HorizontalDivider()
+}
+
+/** Выбор темы — на главной странице настроек и в читалке. */
+@Composable
+fun ThemeChips(settings: AppSettings, onSelect: (String) -> Unit) {
+    val themes = listOf("system" to "Как в системе", "light" to "Светлая", "sepia" to "Сепия", "dark" to "Тёмная", "black" to "Чёрная")
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        themes.forEach { (key, label) ->
+            FilterChip(selected = settings.theme == key, onClick = { onSelect(key) }, label = { Text(label) })
+        }
+    }
+}
+
 /** Настройки оформления текста: используются и в читалке, и в настройках. */
 @Composable
-fun TextSettingsPanel(settings: AppSettings, modifier: Modifier = Modifier) {
+fun TextSettingsPanel(settings: AppSettings, modifier: Modifier = Modifier, showTheme: Boolean = true) {
     val store = App.instance.settings
     val scope = rememberCoroutineScope()
     fun save(t: (AppSettings) -> AppSettings) {
@@ -145,18 +206,10 @@ fun TextSettingsPanel(settings: AppSettings, modifier: Modifier = Modifier) {
     LaunchedEffect(settings.lineHeight) { lineHeight = settings.lineHeight }
 
     Column(modifier) {
-        Text("Тема", style = MaterialTheme.typography.bodyMedium)
-        val themes = listOf("system" to "Как в системе", "light" to "Светлая", "sepia" to "Сепия", "dark" to "Тёмная")
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            themes.forEach { (key, label) ->
-                FilterChip(
-                    selected = settings.theme == key,
-                    onClick = { save { it.copy(theme = key) } },
-                    label = { Text(label) },
-                )
-            }
+        if (showTheme) {
+            Text("Тема", style = MaterialTheme.typography.bodyMedium)
+            ThemeChips(settings) { key -> save { it.copy(theme = key) } }
         }
-
         Spacer(Modifier.height(12.dp))
         Text("Чтение", style = MaterialTheme.typography.bodyMedium)
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

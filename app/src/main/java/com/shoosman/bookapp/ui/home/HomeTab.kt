@@ -63,6 +63,9 @@ import com.shoosman.bookapp.data.progress
 import com.shoosman.bookapp.data.textProgress
 import com.shoosman.bookapp.ui.common.Cover
 
+/** Размер обложек на полках главной (настройка «Обложки на главной»). */
+val LocalTileScale = androidx.compose.runtime.compositionLocalOf { 1f }
+
 const val SHELF_ALL = -1
 const val SHELF_RECENT = -2
 
@@ -246,10 +249,11 @@ private fun tilesOf(books: List<BookEntity>): List<Pair<String, List<BookEntity>
 @Composable
 private fun SeriesTile(books: List<BookEntity>, onClick: () -> Unit) {
     val first = books.first()
-    Column(Modifier.width(104.dp).clickable(onClick = onClick)) {
-        Box(Modifier.size(104.dp, 152.dp)) {
-            books.getOrNull(1)?.let { Cover(it.title, it.author, it.coverPath, Modifier.size(92.dp, 140.dp).offset(12.dp, 0.dp)) }
-            Cover(first.title, first.author, first.coverPath, Modifier.offset(0.dp, 6.dp).shadow(3.dp).size(94.dp, 146.dp))
+    val k = LocalTileScale.current
+    Column(Modifier.width(104.dp * k).clickable(onClick = onClick)) {
+        Box(Modifier.size(104.dp * k, 152.dp * k)) {
+            books.getOrNull(1)?.let { Cover(it.title, it.author, it.coverPath, Modifier.size(92.dp * k, 140.dp * k).offset(12.dp * k, 0.dp)) }
+            Cover(first.title, first.author, first.coverPath, Modifier.offset(0.dp, 6.dp).shadow(3.dp).size(94.dp * k, 146.dp * k))
             Text(
                 "${books.size}",
                 style = MaterialTheme.typography.labelMedium,
@@ -309,8 +313,9 @@ private fun SeriesBooksSheet(books: List<BookEntity>, onDismiss: () -> Unit, onO
 
 @Composable
 private fun BookTile(book: BookEntity, onClick: () -> Unit) {
-    Column(Modifier.width(104.dp).clickable(onClick = onClick)) {
-        Cover(book.title, book.author, book.coverPath, Modifier.size(104.dp, 152.dp))
+    val k = LocalTileScale.current
+    Column(Modifier.width(104.dp * k).clickable(onClick = onClick)) {
+        Cover(book.title, book.author, book.coverPath, Modifier.size(104.dp * k, 152.dp * k))
         if (book.progress > 0f && book.status != BookStatus.FINISHED) {
             LinearProgressIndicator(
                 progress = { book.progress },
