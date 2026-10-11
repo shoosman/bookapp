@@ -26,10 +26,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.ui.book.BookScreen
-import com.shoosman.bookapp.ui.library.LibraryScreen
+import com.shoosman.bookapp.ui.home.MainScreen
 import com.shoosman.bookapp.ui.player.PlayerScreen
 import com.shoosman.bookapp.ui.reader.ReaderScreen
-import com.shoosman.bookapp.ui.settings.SettingsScreen
 import com.shoosman.bookapp.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
@@ -80,13 +79,13 @@ private fun AppNav(settings: AppSettings) {
         nav.addOnDestinationChangedListener(listener)
         onDispose { nav.removeOnDestinationChangedListener(listener) }
     }
-    NavHost(navController = nav, startDestination = "library") {
-        composable("library") {
-            LibraryScreen(
+    NavHost(navController = nav, startDestination = "main") {
+        composable("main") {
+            MainScreen(
                 settings = settings,
                 onOpenBook = { nav.navigate("book/$it") },
-                onOpenPlayer = { nav.navigate("player/$it") },
-                onSettings = { nav.navigate("settings") },
+                onRead = { nav.navigate("reader/$it") },
+                onListen = { nav.navigate("player/$it") },
             )
         }
         composable("book/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -138,9 +137,6 @@ private fun AppNav(settings: AppSettings) {
                     nav.navigate("reader/$id?pos=$pos")
                 },
             )
-        }
-        composable("settings") {
-            SettingsScreen(settings = settings, onBack = { nav.popBackStack() })
         }
     }
 }

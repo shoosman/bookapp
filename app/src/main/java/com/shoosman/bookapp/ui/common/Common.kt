@@ -72,12 +72,12 @@ fun Cover(title: String, author: String, coverPath: String?, modifier: Modifier 
 
 /** Мини-плеер внизу экрана, если что-то загружено в плеер. */
 @Composable
-fun MiniPlayer(onOpen: (Long) -> Unit, skipBackSec: Int) {
+fun MiniPlayer(onOpen: (Long) -> Unit, skipBackSec: Int, insetBottom: Boolean = true) {
     val player = App.instance.player
     val s by player.ui.collectAsStateWithLifecycle()
     if (s.bookId < 0) return
     Surface(tonalElevation = 3.dp, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.navigationBarsPadding()) {
+        Column(if (insetBottom) Modifier.navigationBarsPadding() else Modifier) {
             LinearProgressIndicator(
                 progress = { if (s.durMs > 0) (s.posMs.toFloat() / s.durMs).coerceIn(0f, 1f) else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),

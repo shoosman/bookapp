@@ -1,0 +1,92 @@
+package com.shoosman.bookapp.ui.home
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.shoosman.bookapp.App
+import com.shoosman.bookapp.data.AppSettings
+import com.shoosman.bookapp.ui.common.MiniPlayer
+import com.shoosman.bookapp.ui.library.LibraryTab
+import com.shoosman.bookapp.ui.settings.SettingsScreen
+
+/** Главный экран с нижними вкладками: Главная · Библиотека · Настройки. */
+@Composable
+fun MainScreen(
+    settings: AppSettings,
+    onOpenBook: (Long) -> Unit,
+    onRead: (Long) -> Unit,
+    onListen: (Long) -> Unit,
+) {
+    val books by App.instance.repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = null)
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var shelf by rememberSaveable { mutableIntStateOf(SHELF_ALL) }
+    val importer = remember { Importer() }
+
+    Scaffold(
+        bottomBar = {
+            Column {
+                MiniPlayer(onOpen = onListen, skipBackSec = settings.skipBackSec, insetBottom = false)
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = tab == 0,
+                        onClick = { tab = 0 },
+                        icon = { Icon(Icons.Outlined.Home, null) },
+                        label = { Text("Главная") },
+                    )
+                    NavigationBarItem(
+                        selected = tab == 1,
+                        onClick = { tab = 1 },
+                        icon = { Icon(Icons.AutoMirrored.Outlined.LibraryBooks, null) },
+                        label = { Text("Библиотека") },
+                    )
+                    NavigationBarItem(
+                        selected = tab == 2,
+                        onClick = { tab = 2 },
+                        icon = { Icon(Icons.Outlined.Settings, null) },
+                        label = { Text("Настройки") },
+                    )
+                }
+            }
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            when (tab) {
+                0 -> HomeTab(
+                    books = books,
+                    importer = importer,
+                    onOpenBook = onOpenBook,
+                    onRead = onRead,
+                    onListen = onListen,
+                    onShelf = { shelf = it; tab = 1 },
+                )
+                1 -> LibraryTab(
+                    books = books,
+                    shelf = shelf,
+                    onShelfChange = { shelf = it },
+                    importer = importer,
+                    onOpenBook = onOpenBook,
+                )
+                else -> SettingsScreen(settings = settings, onBack = null)
+            }
+        }
+    }
+
+    ImporterHost(importer, onOpenBook)
+}

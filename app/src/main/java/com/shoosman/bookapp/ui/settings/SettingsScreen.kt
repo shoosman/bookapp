@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,7 +52,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: AppSettings, onBack: () -> Unit) {
+fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
     val store = App.instance.settings
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -62,9 +64,12 @@ fun SettingsScreen(settings: AppSettings, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Настройки") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                navigationIcon = {
+                    if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
+                },
             )
         },
+        contentWindowInsets = if (onBack == null) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
     ) { padding ->
         Column(
             Modifier
