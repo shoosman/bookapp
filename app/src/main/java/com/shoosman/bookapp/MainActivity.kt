@@ -115,9 +115,9 @@ private fun AppNav(settings: AppSettings) {
                 startPos = pos,
                 settings = settings,
                 onBack = { nav.popBackStack() },
-                onOpenPlayer = {
+                onOpenPlayer = { ms ->
                     nav.popBackStack()
-                    nav.navigate("player/$id")
+                    nav.navigate("player/$id?ms=$ms")
                 },
             )
         }

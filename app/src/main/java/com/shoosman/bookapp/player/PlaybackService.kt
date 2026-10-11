@@ -50,7 +50,7 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        session = MediaSession.Builder(this, ChapterPlayer(exo))
+        session = MediaSession.Builder(this, ChapterPlayer(exo, packageName) { session })
             .setSessionActivity(openApp)
             .setCallback(Callback())
             .build()
@@ -101,10 +101,17 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Обёртка над плеером: кнопки ⏮/⏭ (в шторке, на наушниках, на часах) листают главы,
-     * а не файлы. Кнопки показываются, даже если книга — один файл.
+     * Обёртка над плеером для кнопок ⏮/⏭:
+     *  - в шторке, на экране блокировки и в самом Чтеце — листают главы;
+     *  - в машине, на Bluetooth- и проводных наушниках — перематывают на секунды
+     *    (шаг из настроек), потому что вслепую главу легко проскочить.
+     * Кнопки показываются, даже если книга — один файл.
      */
-    private class ChapterPlayer(player: Player) : ForwardingPlayer(player) {
+    private class ChapterPlayer(
+        player: Player,
+        private val ownPackage: String,
+        private val session: () -> MediaSession?,
+    ) : ForwardingPlayer(player) {
         private val extra = listOf(
             Player.COMMAND_SEEK_TO_PREVIOUS,
             Player.COMMAND_SEEK_TO_NEXT,
@@ -120,21 +127,33 @@ class PlaybackService : MediaSessionService() {
 
         private fun chapters() = App.instance.player.takeIf { it.hasChapters }
 
-        override fun seekToPrevious() {
-            chapters()?.previousChapter() ?: super.seekToPrevious()
+        /** Нажали на «железе» — машина, наушники, гарнитура, Android Auto? */
+        private fun fromHardware(): Boolean {
+            val pkg = runCatching { session()?.controllerForCurrentRequest?.packageName }.getOrNull()
+                ?: return true
+            return pkg != ownPackage && pkg != "com.android.systemui"
         }
 
-        override fun seekToNext() {
-            chapters()?.nextChapter() ?: super.seekToNext()
+        private fun back(fallback: () -> Unit) {
+            when {
+                fromHardware() -> App.instance.player.skipBackFromSystem(this)
+                chapters() != null -> App.instance.player.previousChapter()
+                else -> fallback()
+            }
         }
 
-        override fun seekToPreviousMediaItem() {
-            chapters()?.previousChapter() ?: super.seekToPreviousMediaItem()
+        private fun forward(fallback: () -> Unit) {
+            when {
+                fromHardware() -> App.instance.player.skipForwardFromSystem(this)
+                chapters() != null -> App.instance.player.nextChapter()
+                else -> fallback()
+            }
         }
 
-        override fun seekToNextMediaItem() {
-            chapters()?.nextChapter() ?: super.seekToNextMediaItem()
-        }
+        override fun seekToPrevious() = back { super.seekToPrevious() }
+        override fun seekToNext() = forward { super.seekToNext() }
+        override fun seekToPreviousMediaItem() = back { super.seekToPreviousMediaItem() }
+        override fun seekToNextMediaItem() = forward { super.seekToNextMediaItem() }
 
         override fun hasPreviousMediaItem(): Boolean = chapters() != null || super.hasPreviousMediaItem()
         override fun hasNextMediaItem(): Boolean = chapters() != null || super.hasNextMediaItem()

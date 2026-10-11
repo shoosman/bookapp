@@ -36,7 +36,7 @@ import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationSearching
@@ -106,7 +106,8 @@ fun ReaderScreen(
     startPos: Int,
     settings: AppSettings,
     onBack: () -> Unit,
-    onOpenPlayer: () -> Unit,
+    /** Переключиться на аудио с этой позиции (мс от начала книги). */
+    onOpenPlayer: (Long) -> Unit,
 ) {
     val repo = App.instance.repo
     val book by repo.dao.observe(bookId).collectAsStateWithLifecycle(initialValue = null)
@@ -174,7 +175,8 @@ private fun ReaderContent(
     startPos: Int,
     settings: AppSettings,
     onBack: () -> Unit,
-    onOpenPlayer: () -> Unit,
+    /** Переключиться на аудио с этой позиции (мс от начала книги). */
+    onOpenPlayer: (Long) -> Unit,
 ) {
     val app = App.instance
     val repo = app.repo
@@ -219,8 +221,9 @@ private fun ReaderContent(
     val chapterTitle = c.chapters.getOrNull(curChapter)?.title.orEmpty()
 
     // Где сейчас звучит аудио.
-    val audioChar = if (audioActive && mapper != null) mapper.charAt(ps.globalMs) else -1
-    val audioPara = if (audioChar >= 0) c.paragraphAt(audioChar) else -1
+    // Текст и аудио — разные режимы: в читалке аудио не играет и не подсвечивается.
+    val audioChar = -1
+    val audioPara = -1
 
     // Экран не гаснет, пока открыта книга.
     val view = LocalView.current
@@ -261,14 +264,14 @@ private fun ReaderContent(
     fun listenFrom(i: Int) {
         val m = mapper ?: return
         val ms = m.msAt(c.paragraphs[i].start)
-        CrashLog.note("Читалка: слушать с абзаца $i (${fmtTime(ms)})")
-        follow = true
-        scope.launch { player.open(bookId, ms, play = true) }
+        CrashLog.note("Читалка: переключение на аудио с абзаца $i (${fmtTime(ms)})")
+        repo.appScope.launch { repo.saveReadPos(bookId, c.paragraphs[i].start) }
+        onOpenPlayer(ms)
     }
 
     fun syncHere(i: Int) {
         if (!audioActive) {
-            scope.launch { snackbar.showSnackbar("Сначала включите аудио, а потом отметьте, где оно звучит") }
+            scope.launch { snackbar.showSnackbar("Сначала послушайте аудио, остановите его и вернитесь к тексту") }
             return
         }
         val ms = ps.globalMs
@@ -276,7 +279,6 @@ private fun ReaderContent(
         scope.launch {
             repo.addAnchor(bookId, ms, c.paragraphs[i].start)
             player.refreshChapters(bookId)
-            follow = true
             snackbar.showSnackbar("Готово: ${fmtTime(ms)} в аудио = этот абзац")
         }
     }
@@ -416,50 +418,13 @@ private fun ReaderContent(
                         },
                     )
                     if (hasAudio) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            FilledIconButton(onClick = { if (audioActive) player.toggle() else listenFrom(curPara) }) {
-                                Icon(
-                                    if (audioActive && ps.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    if (audioActive && ps.isPlaying) "Пауза" else "Слушать",
-                                )
-                            }
-                            TextButton(onClick = { listenFrom(curPara) }) {
-                                Icon(Icons.Filled.Headphones, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Слушать отсюда")
-                            }
-                            Spacer(Modifier.weight(1f))
-                            IconToggleButton(
-                                checked = follow,
-                                onCheckedChange = {
-                                    follow = it
-                                    if (it && audioChar >= 0) jumps.tryEmit(audioChar)
-                                },
-                            ) {
-                                Icon(if (follow) Icons.Filled.MyLocation else Icons.Filled.LocationSearching, "Следовать за аудио")
-                            }
-                            IconButton(onClick = onOpenPlayer) { Icon(Icons.Filled.GraphicEq, "Открыть плеер") }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            ReadListenSwitch(enabled = mapper != null) { listenFrom(curPara) }
                         }
                     }
-                }
-            }
-        }
-
-        // Компактные кнопки, когда панели скрыты, а аудио включено.
-        if (!showUi && audioActive) {
-            Column(
-                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 40.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalAlignment = Alignment.End,
-            ) {
-                if (!follow && ps.isPlaying && audioChar >= 0) {
-                    SmallFloatingActionButton(onClick = {
-                        follow = true
-                        jumps.tryEmit(audioChar)
-                    }) { Icon(Icons.Filled.MyLocation, "К месту аудио") }
-                }
-                SmallFloatingActionButton(onClick = { player.toggle() }) {
-                    Icon(if (ps.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, "Пауза/играть")
                 }
             }
         }
@@ -489,8 +454,8 @@ private fun ReaderContent(
                     modifier = Modifier.clickable { selected = null; listenFrom(i) },
                 )
                 ListItem(
-                    headlineContent = { Text("Сейчас звучит здесь") },
-                    supportingContent = { Text("Привязать текущее место аудио к этому абзацу, чтобы синхронизация была точнее") },
+                    headlineContent = { Text("Аудио остановилось здесь") },
+                    supportingContent = { Text("Привязать место, где вы остановили аудио, к этому абзацу — синхронизация станет точнее") },
                     leadingContent = { Icon(Icons.Filled.Link, null) },
                     modifier = Modifier.clickable { selected = null; syncHere(i) },
                 )
@@ -565,6 +530,43 @@ private fun ReaderContent(
         "text" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
             TextSettingsPanel(settings, Modifier.padding(horizontal = 24.dp))
             Spacer(Modifier.height(32.dp))
+        }
+    }
+}
+
+/** Переключатель «читать | слушать»: текущий режим — текст, нажатие на 🎧 открывает аудио. */
+@Composable
+private fun ReadListenSwitch(enabled: Boolean, onListen: () -> Unit) {
+    Surface(
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(52.dp, 38.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.AutoMirrored.Filled.Notes, "Читать",
+                        Modifier.size(22.dp), tint = MaterialTheme.colorScheme.background,
+                    )
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            Box(
+                Modifier
+                    .size(52.dp, 38.dp)
+                    .clickable(enabled = enabled, onClick = onListen),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Headphones, "Слушать с этого места", Modifier.size(22.dp),
+                    tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                )
+            }
         }
     }
 }
