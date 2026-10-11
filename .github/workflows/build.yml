@@ -25,7 +25,12 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log || {
+            # Ошибки компиляции — в аннотации, чтобы их было видно без логов
+            grep -E '^e: |error:|What went wrong' -A2 build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Prepare files
         run: |
