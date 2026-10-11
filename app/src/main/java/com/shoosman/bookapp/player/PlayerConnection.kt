@@ -86,9 +86,33 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         private set
 
     fun setSkip(backSec: Int, forwardSec: Int) {
+        val changed = skipBackMs != backSec * 1000L || skipForwardMs != forwardSec * 1000L
         skipBackMs = backSec * 1000L
         skipForwardMs = forwardSec * 1000L
+        // Кнопки в шторке показывают число секунд — перерисовываем
+        if (changed) android.os.Handler(android.os.Looper.getMainLooper()).post { PlaybackService.current?.refreshButtons() }
     }
+
+    /**
+     * Границы текущей главы внутри файла — для шторки, экрана блокировки и машины,
+     * чтобы там был таймлайн главы, а не всего файла. null — глава совпадает с файлом.
+     */
+    fun chapterWindowInItem(index: Int, posInItem: Long, itemDurMs: Long): LongArray? {
+        if (chapters.isEmpty()) return null
+        val trackStart = starts.getOrNull(index) ?: return null
+        val g = trackStart + posInItem.coerceAtLeast(0)
+        val ch = chapters.lastOrNull { it.startMs <= g } ?: return null
+        val itemEnd = if (itemDurMs > 0) itemDurMs else (tracks.getOrNull(index)?.durationMs ?: 0L)
+        val s = (ch.startMs - trackStart).coerceAtLeast(0)
+        val e = (ch.endMs - trackStart).let { if (itemEnd > 0) it.coerceAtMost(itemEnd) else it }
+        if (e - s < 1000) return null
+        if (s <= 500 && itemEnd > 0 && e >= itemEnd - 500) return null
+        return longArrayOf(s, e)
+    }
+
+    /** Позицию читаем прямо из плеера: шторке отдаётся время главы, а приложению нужно время файла. */
+    private fun raw(c: Player): Player = PlaybackService.raw ?: c
+    private var notifiedChapter = -1
 
     /** Перемотка из шторки/экрана блокировки. */
     fun skipBackFromSystem(fallback: Player) = skipFromSystem(-skipBackMs, fallback)
@@ -267,7 +291,8 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
     }
 
     fun seekInTrack(posMs: Long) {
-        controller?.seekTo(posMs.coerceAtLeast(0))
+        val c = controller ?: return
+        c.seekTo(c.currentMediaItemIndex, posMs.coerceAtLeast(0))
         refresh()
     }
 
@@ -275,7 +300,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     fun previousTrack() {
         val c = controller ?: return
-        if (c.currentPosition > 3000 || c.currentMediaItemIndex == 0) c.seekTo(0) else c.seekToPreviousMediaItem()
+        if (raw(c).currentPosition > 3000 || c.currentMediaItemIndex == 0) c.seekTo(c.currentMediaItemIndex, 0) else c.seekToPreviousMediaItem()
         refresh()
     }
 
@@ -402,10 +427,11 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
     private fun refresh() {
         val c = controller ?: return
         if (_ui.value.bookId < 0) return
-        val idx = c.currentMediaItemIndex.coerceAtLeast(0)
-        val pos = c.currentPosition.coerceAtLeast(0)
+        val r = raw(c)
+        val idx = r.currentMediaItemIndex.coerceAtLeast(0)
+        val pos = r.currentPosition.coerceAtLeast(0)
         val known = tracks.getOrNull(idx)?.durationMs ?: 0L
-        val dur = if (known > 0) known else c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        val dur = if (known > 0) known else r.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
         val global = (starts.getOrNull(idx) ?: 0L) + pos
         val ci = chapterIndexAt(global)
         val ch = chapters.getOrNull(ci)
@@ -425,6 +451,11 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
                 chapterStartMs = ch?.startMs ?: trackStart,
                 chapterEndMs = ch?.endMs ?: (trackStart + dur),
             )
+        }
+        // Глава сменилась — шторка должна показать новое название и длительность
+        if (ci != notifiedChapter) {
+            notifiedChapter = ci
+            PlaybackService.current?.chapterChanged()
         }
         // Таймер «до конца главы»: глава сменилась — останавливаемся в начале новой.
         if (_ui.value.sleepEndOfChapter && sleepChapter >= 0 && ci > sleepChapter && c.isPlaying) {

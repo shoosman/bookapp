@@ -153,8 +153,20 @@ fun PlayerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // Верх: свернуть
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     RoundButton(Icons.Filled.KeyboardArrowDown, "Свернуть", onBack)
+                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                        Text(b.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (b.author.isNotBlank()) {
+                            Text(
+                                b.author,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
 
                 // Обложка занимает всё свободное место
@@ -201,13 +213,14 @@ fun PlayerScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            b.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        if (s.chapterCount > 1) {
+                            Text(
+                                "Глава ${s.chapter + 1} из ${s.chapterCount}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
                     }
                     IconButton(onClick = { addBookmark() }) {
                         Icon(Icons.Outlined.BookmarkBorder, "Закладка")
@@ -331,68 +344,26 @@ fun PlayerScreen(
     }
 
     when (sheet) {
-        "chapters" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
-            Column(Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
-                Text("Главы", style = MaterialTheme.typography.titleMedium)
-                if (s.totalMs > 0) {
-                    val left = ((s.totalMs - s.globalMs) / s.speed.coerceAtLeast(0.1f)).toLong()
-                    Text(
-                        "До конца книги ${fmtDuration(left)} · прослушано ${s.globalMs * 100 / s.totalMs}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            val list = player.currentChapters
-            val listState = rememberLazyListState(initialFirstVisibleItemIndex = (s.chapter - 3).coerceAtLeast(0))
-            LazyColumn(state = listState) {
-                itemsIndexed(list) { i, ch ->
-                    val current = i == s.chapter
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                ch.title,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            )
-                        },
-                        trailingContent = { Text(fmtTime(ch.durationMs), style = MaterialTheme.typography.labelMedium) },
-                        modifier = Modifier.clickable {
-                            player.goToChapter(i)
-                            sheet = null
-                        },
-                    )
-                }
-                item { Spacer(Modifier.height(24.dp)) }
-            }
+        "chapters" -> ModalBottomSheet(
+            onDismissRequest = { sheet = null },
+            sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            dragHandle = null,
+        ) {
+            ChaptersSheet(
+                bookTitle = b?.title.orEmpty(),
+                s = s,
+                player = player,
+                bookmarks = bookmarks,
+                onDeleteBookmark = { id -> scope.launch { repo.deleteBookmark(id) } },
+                onClose = { sheet = null },
+            )
         }
 
-        "speed" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
-            Column(Modifier.padding(horizontal = 24.dp)) {
-                var v by remember { mutableFloatStateOf(s.speed) }
-                Text("Скорость: ${fmtSpeed(v)}x", style = MaterialTheme.typography.titleMedium)
-                Slider(
-                    value = v,
-                    onValueChange = { v = (it * 20).roundToInt() / 20f },
-                    onValueChangeFinished = { player.setSpeed(v) },
-                    valueRange = 0.5f..3f,
-                )
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0.8f, 1f, 1.2f, 1.4f, 1.5f, 1.75f, 2f, 2.5f).forEach { preset ->
-                        FilterChip(
-                            selected = abs(v - preset) < 0.01f,
-                            onClick = { v = preset; player.setSpeed(preset) },
-                            label = { Text("${fmtSpeed(preset)}x") },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(32.dp))
-            }
+        "speed" -> ModalBottomSheet(onDismissRequest = { sheet = null }, dragHandle = null) {
+            SpeedSheet(s, player) { sheet = null }
         }
 
-        "sleep" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
+        "sleep" -> ModalBottomSheet(onDismissRequest = { sheet = null }, dragHandle = null) {
             SleepSheet(s, player) { sheet = null }
         }
     }
@@ -413,25 +384,37 @@ private fun RoundButton(icon: ImageVector, description: String, onClick: () -> U
 /** Круглая стрелка с числом секунд внутри; для «вперёд» стрелка зеркальная. */
 @Composable
 private fun SeekButton(seconds: Int, forward: Boolean, onClick: () -> Unit) {
+    val res = if (forward) com.shoosman.bookapp.player.PlaybackService.forwardIcon(seconds)
+    else com.shoosman.bookapp.player.PlaybackService.backIcon(seconds)
+    val generic = res == com.shoosman.bookapp.R.drawable.ic_n_rewind || res == com.shoosman.bookapp.R.drawable.ic_n_forward
     Box(
         Modifier
             .size(56.dp)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.Filled.Replay,
-            if (forward) "Вперёд на $seconds с" else "Назад на $seconds с",
-            Modifier
-                .size(44.dp)
-                .graphicsLayer { if (forward) scaleX = -1f },
-        )
-        Text(
-            "$seconds",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 5.dp),
-        )
+        if (!generic) {
+            // Та же иконка, что и в шторке: стрелка с числом секунд
+            Icon(
+                androidx.compose.ui.res.painterResource(res),
+                if (forward) "Вперёд на $seconds с" else "Назад на $seconds с",
+                Modifier.size(44.dp),
+            )
+        } else {
+            Icon(
+                Icons.Filled.Replay,
+                if (forward) "Вперёд на $seconds с" else "Назад на $seconds с",
+                Modifier
+                    .size(44.dp)
+                    .graphicsLayer { if (forward) scaleX = -1f },
+            )
+            Text(
+                "$seconds",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
     }
 }
 
@@ -461,102 +444,6 @@ private fun ModeSwitch(onRead: () -> Unit, readEnabled: Boolean) {
                     tint = if (readEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
                 )
             }
-        }
-    }
-}
-
-/** Таймер сна: текущее состояние сверху, быстрые варианты плитками, своё время — ползунком. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun SleepSheet(s: com.shoosman.bookapp.player.PlayerUi, player: com.shoosman.bookapp.player.PlayerConnection, onClose: () -> Unit) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val prefs = remember { ctx.getSharedPreferences("player", android.content.Context.MODE_PRIVATE) }
-    var custom by remember { mutableStateOf(prefs.getInt("sleep_custom", 25).toFloat()) }
-    val last = prefs.getInt("sleep_last", 0)
-    fun start(min: Int) {
-        prefs.edit().putInt("sleep_last", min).apply()
-        player.setSleepMinutes(min)
-        onClose()
-    }
-    val active = s.sleepLeftMs > 0 || s.sleepEndOfChapter
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
-        Text("Таймер сна", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(12.dp))
-        if (active) {
-            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text(
-                        if (s.sleepEndOfChapter) "Остановлю в конце главы" else "Остановлю через ${fmtTime(s.sleepLeftMs)}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        androidx.compose.material3.FilledTonalButton(onClick = { player.extendSleep(5) }) { Text("+5 мин") }
-                        androidx.compose.material3.FilledTonalButton(onClick = { player.extendSleep(15) }) { Text("+15 мин") }
-                        androidx.compose.material3.TextButton(onClick = { player.cancelSleep(); onClose() }) {
-                            Text("Выключить", color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-        Text("Остановить через", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
-        androidx.compose.foundation.layout.FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            maxItemsInEachRow = 4,
-        ) {
-            listOf(5, 10, 15, 20, 30, 45, 60, 90).forEach { min ->
-                SleepTile(
-                    if (min < 60) "$min" else "${min / 60}${if (min % 60 == 30) ",5" else ""}",
-                    if (min < 60) "мин" else "ч",
-                    highlighted = min == last,
-                    modifier = Modifier.weight(1f),
-                ) { start(min) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        SleepTile(
-            "До конца главы",
-            null,
-            highlighted = s.sleepEndOfChapter,
-            modifier = Modifier.fillMaxWidth(),
-        ) { player.setSleepEndOfChapter(); onClose() }
-
-        Spacer(Modifier.height(20.dp))
-        Text("Своё время: ${custom.toInt()} мин", style = MaterialTheme.typography.titleSmall)
-        Slider(
-            value = custom,
-            onValueChange = { custom = (it / 5).roundToIntSafe() * 5f },
-            valueRange = 5f..180f,
-            steps = 34,
-        )
-        androidx.compose.material3.Button(
-            onClick = {
-                prefs.edit().putInt("sleep_custom", custom.toInt()).apply()
-                start(custom.toInt())
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Запустить на ${custom.toInt()} мин") }
-    }
-}
-
-private fun Float.roundToIntSafe(): Int = kotlin.math.round(this).toInt()
-
-@Composable
-private fun SleepTile(big: String, small: String?, highlighted: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-        color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        modifier = modifier.height(64.dp),
-    ) {
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(big, style = if (small != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
-            if (small != null) Text(small, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

@@ -24,6 +24,7 @@ import com.shoosman.bookapp.R
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
+    private var chapterPlayer: ChapterPlayer? = null
 
     private val skipBack = SessionCommand(ACTION_SKIP_BACK, Bundle.EMPTY)
     private val skipForward = SessionCommand(ACTION_SKIP_FORWARD, Bundle.EMPTY)
@@ -50,28 +51,43 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        session = MediaSession.Builder(this, ChapterPlayer(exo, packageName) { session })
+        raw = exo
+        current = this
+        val cp = ChapterPlayer(exo, packageName) { session }
+        chapterPlayer = cp
+        session = MediaSession.Builder(this, cp)
             .setSessionActivity(openApp)
             .setCallback(Callback())
             .build()
             .also { it.setCustomLayout(seekButtons()) }
     }
 
-    /** Кнопки перемотки на секунды — в шторке и на экране блокировки. */
+    /** Кнопки перемотки на секунды — в шторке и на экране блокировки, с числом секунд в иконке. */
     private fun seekButtons(): ImmutableList<CommandButton> {
         val conn = App.instance.player
+        val back = (conn.skipBackMs / 1000).toInt()
+        val fwd = (conn.skipForwardMs / 1000).toInt()
         return ImmutableList.of(
             CommandButton.Builder()
-                .setDisplayName("Назад на ${conn.skipBackMs / 1000} с")
-                .setIconResId(R.drawable.ic_n_rewind)
+                .setDisplayName("Назад на $back с")
+                .setIconResId(backIcon(back))
                 .setSessionCommand(skipBack)
                 .build(),
             CommandButton.Builder()
-                .setDisplayName("Вперёд на ${conn.skipForwardMs / 1000} с")
-                .setIconResId(R.drawable.ic_n_forward)
+                .setDisplayName("Вперёд на $fwd с")
+                .setIconResId(forwardIcon(fwd))
                 .setSessionCommand(skipForward)
                 .build(),
         )
+    }
+
+    fun refreshButtons() {
+        session?.setCustomLayout(seekButtons())
+    }
+
+    /** Глава сменилась: шторка перечитывает название и длительность. */
+    fun chapterChanged() {
+        android.os.Handler(mainLooper).post { chapterPlayer?.notifyChapterChanged() }
     }
 
     private inner class Callback : MediaSession.Callback {
@@ -157,6 +173,72 @@ class PlaybackService : MediaSessionService() {
 
         override fun hasPreviousMediaItem(): Boolean = chapters() != null || super.hasPreviousMediaItem()
         override fun hasNextMediaItem(): Boolean = chapters() != null || super.hasNextMediaItem()
+
+        // ---- Таймлайн главы для шторки, экрана блокировки и машины ----
+        // (Приложение берёт позицию прямо из ExoPlayer, поэтому его это не затрагивает.)
+
+        private val listeners = java.util.concurrent.CopyOnWriteArraySet<Player.Listener>()
+
+        override fun addListener(listener: Player.Listener) {
+            super.addListener(listener)
+            listeners.add(listener)
+        }
+
+        override fun removeListener(listener: Player.Listener) {
+            super.removeListener(listener)
+            listeners.remove(listener)
+        }
+
+        private fun window(): LongArray? {
+            val dur = super.getDuration().takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            return App.instance.player.chapterWindowInItem(super.getCurrentMediaItemIndex(), super.getCurrentPosition(), dur)
+        }
+
+        override fun getDuration(): Long = window()?.let { it[1] - it[0] } ?: super.getDuration()
+        override fun getContentDuration(): Long = window()?.let { it[1] - it[0] } ?: super.getContentDuration()
+
+        override fun getCurrentPosition(): Long =
+            window()?.let { (super.getCurrentPosition() - it[0]).coerceIn(0, it[1] - it[0]) } ?: super.getCurrentPosition()
+
+        override fun getContentPosition(): Long =
+            window()?.let { (super.getContentPosition() - it[0]).coerceIn(0, it[1] - it[0]) } ?: super.getContentPosition()
+
+        override fun getBufferedPosition(): Long =
+            window()?.let { (super.getBufferedPosition() - it[0]).coerceIn(0, it[1] - it[0]) } ?: super.getBufferedPosition()
+
+        override fun getContentBufferedPosition(): Long =
+            window()?.let { (super.getContentBufferedPosition() - it[0]).coerceIn(0, it[1] - it[0]) } ?: super.getContentBufferedPosition()
+
+        /** Перемотка ползунком в шторке — внутри главы. */
+        override fun seekTo(positionMs: Long) {
+            val w = window()
+            super.seekTo(if (w != null) w[0] + positionMs.coerceIn(0, w[1] - w[0]) else positionMs)
+        }
+
+        /** В шторке — название главы, ниже — книга и автор. */
+        override fun getMediaMetadata(): androidx.media3.common.MediaMetadata {
+            val md = super.getMediaMetadata()
+            val ui = App.instance.player.ui.value
+            if (ui.chapterTitle.isBlank() || window() == null) return md
+            return md.buildUpon()
+                .setTitle(ui.chapterTitle)
+                .setDisplayTitle(ui.chapterTitle)
+                .setArtist(listOf(ui.author, ui.title).filter { it.isNotBlank() }.joinToString(" · "))
+                .build()
+        }
+
+        fun notifyChapterChanged() {
+            val md = mediaMetadata
+            val events = Player.Events(
+                androidx.media3.common.FlagSet.Builder()
+                    .add(Player.EVENT_MEDIA_METADATA_CHANGED)
+                    .build(),
+            )
+            listeners.forEach {
+                it.onMediaMetadataChanged(md)
+                it.onEvents(this, events)
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -169,6 +251,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        raw = null
+        current = null
+        chapterPlayer = null
         session?.run {
             player.release()
             release()
@@ -180,5 +265,28 @@ class PlaybackService : MediaSessionService() {
     companion object {
         const val ACTION_SKIP_BACK = "chtets.SKIP_BACK"
         const val ACTION_SKIP_FORWARD = "chtets.SKIP_FORWARD"
+
+        /** Сам ExoPlayer — для точной позиции в приложении (шторке отдаётся время главы). */
+        @Volatile var raw: Player? = null
+            private set
+
+        @Volatile var current: PlaybackService? = null
+            private set
+
+        fun backIcon(sec: Int) = when (sec) {
+            5 -> R.drawable.ic_n_back_5
+            10 -> R.drawable.ic_n_back_10
+            15 -> R.drawable.ic_n_back_15
+            30 -> R.drawable.ic_n_back_30
+            else -> R.drawable.ic_n_rewind
+        }
+
+        fun forwardIcon(sec: Int) = when (sec) {
+            10 -> R.drawable.ic_n_fwd_10
+            15 -> R.drawable.ic_n_fwd_15
+            30 -> R.drawable.ic_n_fwd_30
+            60 -> R.drawable.ic_n_fwd_60
+            else -> R.drawable.ic_n_forward
+        }
     }
 }
