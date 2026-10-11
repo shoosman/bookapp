@@ -3,10 +3,12 @@ package com.shoosman.bookapp.sync
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
+import com.shoosman.bookapp.net.Http
+import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.security.MessageDigest
 
 /** Ошибка ответа GitHub с кодом. */
@@ -57,25 +59,36 @@ object GitHubAuth {
     }
 
     private fun postForm(url: String, params: Map<String, String>): JSONObject {
-        val body = params.entries.joinToString("&") { "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}" }
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            setRequestProperty("User-Agent", "Chtets")
-        }
-        try {
-            conn.outputStream.use { it.write(body.toByteArray()) }
-            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            return runCatching { JSONObject(text) }.getOrElse { throw GitHubException(conn.responseCode, "GitHub ответил: ${conn.responseCode}") }
-        } finally {
-            conn.disconnect()
+        val form = FormBody.Builder().apply { params.forEach { (k, v) -> add(k, v) } }.build()
+        val req = Request.Builder()
+            .url(url)
+            .post(form)
+            .header("Accept", "application/json")
+            .header("User-Agent", "Chtets")
+            .build()
+        return withRetry {
+            Http.client.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                runCatching { JSONObject(text) }.getOrElse { throw GitHubException(resp.code, "GitHub ответил: ${resp.code}") }
+            }
         }
     }
+}
+
+/** Повтор при сетевых сбоях (не при ответах GitHub с ошибкой). */
+internal fun <T> withRetry(times: Int = 3, block: () -> T): T {
+    var last: IOException? = null
+    repeat(times) { attempt ->
+        try {
+            return block()
+        } catch (e: GitHubException) {
+            throw e
+        } catch (e: IOException) {
+            last = e
+            Thread.sleep(1500L * (attempt + 1))
+        }
+    }
+    throw last ?: IOException("Сеть недоступна")
 }
 
 /** Минимальный клиент GitHub REST API для одного репозитория. */
@@ -145,37 +158,30 @@ class GitHubApi(private val token: String, val repo: String) {
     }
 
     private fun request(method: String, path: String, body: JSONObject?): Any {
-        val conn = (URL("https://api.github.com$path").openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            useCaches = false
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("Authorization", "Bearer $token")
-            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            setRequestProperty("User-Agent", "Chtets")
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
+        val reqBody = body?.toString()?.toRequestBody("application/json".toMediaType())
+        val req = Request.Builder()
+            .url("https://api.github.com$path")
+            .method(method, reqBody)
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer $token")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "Chtets")
+            .build()
+        return withRetry {
+            Http.client.newCall(req).execute().use { resp ->
+                val code = resp.code
+                val text = resp.body?.string().orEmpty()
+                if (code !in 200..299) {
+                    val msg = runCatching { JSONObject(text).optString("message") }.getOrNull().orEmpty()
+                    throw GitHubException(code, when (code) {
+                        401 -> "Вход в GitHub больше не действует. Подключите GitHub заново."
+                        403 -> "GitHub отказал в доступе: $msg"
+                        404 -> "Не найдено на GitHub: $msg"
+                        else -> "GitHub ответил $code: $msg"
+                    })
+                }
+                if (text.trimStart().startsWith("[")) JSONArray(text) else JSONObject(text.ifBlank { "{}" })
             }
-        }
-        try {
-            if (body != null) conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val code = conn.responseCode
-            val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                ?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) {
-                val msg = runCatching { JSONObject(text).optString("message") }.getOrNull().orEmpty()
-                throw GitHubException(code, when (code) {
-                    401 -> "Вход в GitHub больше не действует. Подключите GitHub заново."
-                    403 -> "GitHub отказал в доступе: $msg"
-                    404 -> "Не найдено на GitHub: $msg"
-                    else -> "GitHub ответил $code: $msg"
-                })
-            }
-            return if (text.trimStart().startsWith("[")) JSONArray(text) else JSONObject(text.ifBlank { "{}" })
-        } finally {
-            conn.disconnect()
         }
     }
 

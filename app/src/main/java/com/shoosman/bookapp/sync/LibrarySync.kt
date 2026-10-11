@@ -125,22 +125,30 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
     }
 
     private suspend fun finishLogin(token: String) {
+        // Доступ получен — сохраняем сразу, чтобы сбой сети дальше не заставлял входить заново.
+        prefs.edit().putString(KEY_TOKEN, token).apply()
+        _ui.update { it.copy(connected = true, userCode = null, error = null) }
         val api = GitHubApi(token, repoName)
-        val login = api.user().optString("login")
         try {
+            val login = api.user().optString("login")
+            prefs.edit().putString(KEY_LOGIN, login).apply()
+            _ui.update { it.copy(login = login) }
             api.repoInfo()
         } catch (e: GitHubException) {
             if (e.code == 404) {
                 _ui.update {
-                    it.copy(userCode = null, error = "Нет доступа к репозиторию $repoName. Проверьте, что приложение Chtets Sync установлено на него в настройках GitHub.")
+                    it.copy(error = "Нет доступа к репозиторию $repoName. Проверьте, что приложение Chtets Sync установлено на него в настройках GitHub.")
                 }
                 return
             }
-            throw e
+            _ui.update { it.copy(error = e.message) }
+            return
+        } catch (e: java.io.IOException) {
+            CrashLog.note("Синхронизация: после входа нет связи ${e.message}")
+            _ui.update { it.copy(error = "Вход выполнен, но сейчас нет связи с GitHub. Синхронизация запустится сама, когда связь появится.") }
+            return
         }
-        prefs.edit().putString(KEY_TOKEN, token).putString(KEY_LOGIN, login).apply()
-        CrashLog.note("Синхронизация: вошли как $login")
-        _ui.update { it.copy(connected = true, login = login, userCode = null, error = null) }
+        CrashLog.note("Синхронизация: вход выполнен")
         syncNow()
     }
 
@@ -174,7 +182,8 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                         _ui.update { it.copy(connected = false) }
                         e.message
                     }
-                    e is java.net.UnknownHostException || e is java.net.SocketTimeoutException -> "Нет связи с GitHub"
+                    e is java.net.UnknownHostException -> "Не удалось найти адрес GitHub. Проверьте интернет или VPN — попробую ещё раз позже."
+                    e is java.io.IOException -> "Нет связи с GitHub: ${e.message}"
                     else -> e.message ?: e.javaClass.simpleName
                 }
                 _ui.update { it.copy(running = false, error = msg) }
@@ -185,6 +194,12 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
     /** Возвращает число книг, отправленных в облако. */
     private fun doSync(): Int {
         val api = GitHubApi(token ?: return 0, repoName)
+        if (prefs.getString(KEY_LOGIN, "").isNullOrBlank()) {
+            runCatching { api.user().optString("login") }.getOrNull()?.takeIf { it.isNotBlank() }?.let { login ->
+                prefs.edit().putString(KEY_LOGIN, login).apply()
+                _ui.update { it.copy(login = login) }
+            }
+        }
         val branch = prefs.getString(KEY_BRANCH, null)
             ?: api.repoInfo().optString("default_branch", "main").also { prefs.edit().putString(KEY_BRANCH, it).apply() }
 
