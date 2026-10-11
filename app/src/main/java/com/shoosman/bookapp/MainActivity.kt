@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.shoosman.bookapp.ui.common.ReportDialog
+import com.shoosman.bookapp.update.UpdateHost
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
                 LaunchedEffect(Unit) {
                     app.player.connect()
+                    app.updater.checkInBackground()
                     if (Build.VERSION.SDK_INT >= 33 &&
                         ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) !=
                         PackageManager.PERMISSION_GRANTED
@@ -50,6 +52,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 AppNav(settings)
+                UpdateHost()
                 var crash by remember { mutableStateOf(CrashLog.pending()) }
                 crash?.let { report ->
                     ReportDialog(

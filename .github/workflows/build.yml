@@ -25,6 +25,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build release APK
+        env:
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace

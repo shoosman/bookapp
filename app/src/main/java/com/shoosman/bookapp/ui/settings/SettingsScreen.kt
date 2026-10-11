@@ -92,6 +92,18 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
                 scope.launch { store.update { it.copy(skipForwardSec = v) } }
             }
 
+            SectionTitle("Обновления")
+            Text("Установлена версия ${App.instance.updater.currentVersion}", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = { App.instance.updater.check(manual = true) }, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Проверить обновления")
+            }
+            Text(
+                "Приложение само проверяет новые версии раз в 12 часов.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+
             SectionTitle("О приложении")
             Text(
                 "Чтец $version\nЧиталка и аудиокниги в одном месте с переключением между текстом и звуком.",

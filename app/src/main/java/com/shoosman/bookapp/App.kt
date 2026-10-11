@@ -6,6 +6,7 @@ import com.shoosman.bookapp.data.AppDatabase
 import com.shoosman.bookapp.data.BookRepository
 import com.shoosman.bookapp.data.SettingsStore
 import com.shoosman.bookapp.player.PlayerConnection
+import com.shoosman.bookapp.update.Updater
 
 class App : Application() {
     lateinit var db: AppDatabase
@@ -15,6 +16,8 @@ class App : Application() {
     lateinit var settings: SettingsStore
         private set
     lateinit var player: PlayerConnection
+        private set
+    lateinit var updater: Updater
         private set
 
     override fun onCreate() {
@@ -26,6 +29,7 @@ class App : Application() {
         repo = BookRepository(this, db)
         settings = SettingsStore(this)
         player = PlayerConnection(this, repo)
+        updater = Updater(this)
     }
 
     companion object {
