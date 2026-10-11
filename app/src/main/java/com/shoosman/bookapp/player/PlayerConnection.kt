@@ -344,8 +344,18 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     fun setSleepMinutes(minutes: Int) {
         CrashLog.note("Таймер сна: $minutes мин")
+        setSleepMillis(minutes * 60_000L)
+    }
+
+    /** Добавить минут к идущему таймеру (или запустить, если его нет). */
+    fun extendSleep(minutes: Int) {
+        val left = _ui.value.sleepLeftMs
+        if (left > 0) setSleepMillis(left + minutes * 60_000L) else setSleepMinutes(minutes)
+    }
+
+    private fun setSleepMillis(durationMs: Long) {
         cancelSleep()
-        val end = SystemClock.elapsedRealtime() + minutes * 60_000L
+        val end = SystemClock.elapsedRealtime() + durationMs
         sleepJob = scope.launch {
             while (isActive) {
                 val left = end - SystemClock.elapsedRealtime()

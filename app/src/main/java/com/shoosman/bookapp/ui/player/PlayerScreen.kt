@@ -35,7 +35,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -118,6 +120,7 @@ fun PlayerScreen(
     }
     val active = s.bookId == bookId
     var sheet by remember { mutableStateOf<String?>(null) }
+    val bookmarks by repo.dao.observeBookmarks(bookId).collectAsStateWithLifecycle(initialValue = emptyList())
 
     fun currentChar(): Int = mapper?.charAt(if (active) s.globalMs else (book?.audioGlobalMs ?: 0L)) ?: -1
 
@@ -226,6 +229,25 @@ fun PlayerScreen(
                     colors = SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                // Закладки этой главы — метки под линией; нажатие — перейти к закладке
+                val marks = bookmarks.filter { it.audioMs >= s.chapterStartMs && it.audioMs < s.chapterStartMs + dur && it.audioMs >= 0 }
+                if (marks.isNotEmpty()) {
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(18.dp)) {
+                        val track = maxWidth - 20.dp // у слайдера по 10 dp отступа на бегунок
+                        marks.forEach { bm ->
+                            val frac = ((bm.audioMs - s.chapterStartMs).toFloat() / dur).coerceIn(0f, 1f)
+                            Icon(
+                                Icons.Filled.Bookmark,
+                                "Закладка: ${bm.snippet.take(40)}",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .offset(x = 10.dp + track * frac - 8.dp, y = (-6).dp)
+                                    .size(16.dp)
+                                    .clickable { player.seekInChapter(bm.audioMs - s.chapterStartMs) },
+                            )
+                        }
+                    }
+                }
                 Row(Modifier.fillMaxWidth()) {
                     Text(fmtTime(shownPos), style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.weight(1f))
@@ -371,26 +393,7 @@ fun PlayerScreen(
         }
 
         "sleep" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Таймер сна", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
-                listOf(5, 10, 15, 20, 30, 45, 60, 90).forEach { min ->
-                    ListItem(
-                        headlineContent = { Text("$min мин") },
-                        modifier = Modifier.clickable { player.setSleepMinutes(min); sheet = null },
-                    )
-                }
-                ListItem(
-                    headlineContent = { Text("До конца главы") },
-                    modifier = Modifier.clickable { player.setSleepEndOfChapter(); sheet = null },
-                )
-                if (s.sleepLeftMs > 0 || s.sleepEndOfChapter) {
-                    ListItem(
-                        headlineContent = { Text("Выключить таймер", color = MaterialTheme.colorScheme.error) },
-                        modifier = Modifier.clickable { player.cancelSleep(); sheet = null },
-                    )
-                }
-                Spacer(Modifier.height(24.dp))
-            }
+            SleepSheet(s, player) { sheet = null }
         }
     }
 }
@@ -458,6 +461,102 @@ private fun ModeSwitch(onRead: () -> Unit, readEnabled: Boolean) {
                     tint = if (readEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
                 )
             }
+        }
+    }
+}
+
+/** Таймер сна: текущее состояние сверху, быстрые варианты плитками, своё время — ползунком. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SleepSheet(s: com.shoosman.bookapp.player.PlayerUi, player: com.shoosman.bookapp.player.PlayerConnection, onClose: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("player", android.content.Context.MODE_PRIVATE) }
+    var custom by remember { mutableStateOf(prefs.getInt("sleep_custom", 25).toFloat()) }
+    val last = prefs.getInt("sleep_last", 0)
+    fun start(min: Int) {
+        prefs.edit().putInt("sleep_last", min).apply()
+        player.setSleepMinutes(min)
+        onClose()
+    }
+    val active = s.sleepLeftMs > 0 || s.sleepEndOfChapter
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
+        Text("Таймер сна", style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.height(12.dp))
+        if (active) {
+            Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        if (s.sleepEndOfChapter) "Остановлю в конце главы" else "Остановлю через ${fmtTime(s.sleepLeftMs)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        androidx.compose.material3.FilledTonalButton(onClick = { player.extendSleep(5) }) { Text("+5 мин") }
+                        androidx.compose.material3.FilledTonalButton(onClick = { player.extendSleep(15) }) { Text("+15 мин") }
+                        androidx.compose.material3.TextButton(onClick = { player.cancelSleep(); onClose() }) {
+                            Text("Выключить", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        Text("Остановить через", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = 4,
+        ) {
+            listOf(5, 10, 15, 20, 30, 45, 60, 90).forEach { min ->
+                SleepTile(
+                    if (min < 60) "$min" else "${min / 60}${if (min % 60 == 30) ",5" else ""}",
+                    if (min < 60) "мин" else "ч",
+                    highlighted = min == last,
+                    modifier = Modifier.weight(1f),
+                ) { start(min) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        SleepTile(
+            "До конца главы",
+            null,
+            highlighted = s.sleepEndOfChapter,
+            modifier = Modifier.fillMaxWidth(),
+        ) { player.setSleepEndOfChapter(); onClose() }
+
+        Spacer(Modifier.height(20.dp))
+        Text("Своё время: ${custom.toInt()} мин", style = MaterialTheme.typography.titleSmall)
+        Slider(
+            value = custom,
+            onValueChange = { custom = (it / 5).roundToIntSafe() * 5f },
+            valueRange = 5f..180f,
+            steps = 34,
+        )
+        androidx.compose.material3.Button(
+            onClick = {
+                prefs.edit().putInt("sleep_custom", custom.toInt()).apply()
+                start(custom.toInt())
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Запустить на ${custom.toInt()} мин") }
+    }
+}
+
+private fun Float.roundToIntSafe(): Int = kotlin.math.round(this).toInt()
+
+@Composable
+private fun SleepTile(big: String, small: String?, highlighted: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (highlighted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.height(64.dp),
+    ) {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(big, style = if (small != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
+            if (small != null) Text(small, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
