@@ -262,6 +262,18 @@ private fun ReaderContent(
         Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
     }.getOrDefault(0.5f).coerceIn(0.02f, 1f)
 
+    /** Кнопка «слушать»: если страница та же, с которой пришли из аудио, — продолжаем ровно с того места. */
+    fun backToAudio() {
+        val exact = com.shoosman.bookapp.player.ListenHandoff.resumeMs(bookId, curChar)
+        if (exact != null) {
+            CrashLog.note("Читалка: возврат к аудио на то же место (${fmtTime(exact)})")
+            repo.appScope.launch { repo.saveReadPos(bookId, curChar) }
+            onOpenPlayer(exact)
+        } else {
+            listenFrom(curPara)
+        }
+    }
+
     fun listenFrom(i: Int) {
         val m = mapper ?: return
         val ms = m.msAt(c.paragraphs[i].start)
@@ -423,7 +435,7 @@ private fun ReaderContent(
                             Modifier.fillMaxWidth().padding(top = 4.dp),
                             horizontalArrangement = Arrangement.Center,
                         ) {
-                            ReadListenSwitch(enabled = mapper != null) { listenFrom(curPara) }
+                            ReadListenSwitch(enabled = mapper != null) { backToAudio() }
                         }
                     }
                 }

@@ -127,7 +127,10 @@ fun PlayerScreen(
 
     fun readHere() {
         val pos = currentChar()
-        if (pos >= 0) onReadAt(pos)
+        if (pos < 0) return
+        // Запоминаем точное время — чтобы вернуться к аудио без отставания
+        com.shoosman.bookapp.player.ListenHandoff.remember(bookId, pos, if (active) s.globalMs else (book?.audioGlobalMs ?: 0L))
+        onReadAt(pos)
     }
 
     fun addBookmark() {
