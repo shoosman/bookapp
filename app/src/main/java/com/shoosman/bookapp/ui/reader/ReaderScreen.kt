@@ -262,6 +262,14 @@ private fun ReaderContent(
         Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
     }.getOrDefault(0.5f).coerceIn(0.02f, 1f)
 
+    fun listenFrom(i: Int) {
+        val m = mapper ?: return
+        val ms = m.msAt(c.paragraphs[i].start)
+        CrashLog.note("Читалка: переключение на аудио с абзаца $i (${fmtTime(ms)})")
+        repo.appScope.launch { repo.saveReadPos(bookId, c.paragraphs[i].start) }
+        onOpenPlayer(ms)
+    }
+
     /** Кнопка «слушать»: если страница та же, с которой пришли из аудио, — продолжаем ровно с того места. */
     fun backToAudio() {
         val exact = com.shoosman.bookapp.player.ListenHandoff.resumeMs(bookId, curChar)
@@ -272,14 +280,6 @@ private fun ReaderContent(
         } else {
             listenFrom(curPara)
         }
-    }
-
-    fun listenFrom(i: Int) {
-        val m = mapper ?: return
-        val ms = m.msAt(c.paragraphs[i].start)
-        CrashLog.note("Читалка: переключение на аудио с абзаца $i (${fmtTime(ms)})")
-        repo.appScope.launch { repo.saveReadPos(bookId, c.paragraphs[i].start) }
-        onOpenPlayer(ms)
     }
 
     fun syncHere(i: Int) {
