@@ -101,6 +101,34 @@ class PlaybackService : MediaSessionService() {
                 .build()
         }
 
+        /**
+         * Кнопки наушников, гарнитуры и машины приходят сюда как нажатия клавиш (с Media3 1.3 — «от имени»
+         * шторки, поэтому по пакету их не отличить). ⏮/⏭ на «железе» — перемотка на секунды, а не главы.
+         */
+        override fun onMediaButtonEvent(session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent): Boolean {
+            val ev: android.view.KeyEvent = (
+                if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent::class.java)
+                else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                ) ?: return false
+            val conn = App.instance.player
+            val forward = when (ev.keyCode) {
+                android.view.KeyEvent.KEYCODE_MEDIA_NEXT,
+                android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                android.view.KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD,
+                android.view.KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> true
+                android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                android.view.KeyEvent.KEYCODE_MEDIA_REWIND,
+                android.view.KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD,
+                android.view.KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> false
+                else -> return false // play/pause и прочее — как обычно
+            }
+            if (ev.action == android.view.KeyEvent.ACTION_DOWN) {
+                com.shoosman.bookapp.CrashLog.note("Кнопка устройства: ${if (forward) "вперёд" else "назад"}")
+                if (forward) conn.skipForwardFromSystem(session.player) else conn.skipBackFromSystem(session.player)
+            }
+            return true
+        }
+
         override fun onCustomCommand(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
