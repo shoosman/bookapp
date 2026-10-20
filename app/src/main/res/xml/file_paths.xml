@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="updates" path="updates/" />
+    <!-- Файлы книг — чтобы можно было отправить аудио или текст из приложения -->
+    <files-path name="books" path="books/" />
 </paths>

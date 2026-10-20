@@ -385,6 +385,25 @@ fun BookScreen(
                                 Text("Перенести аудио в приложение")
                             }
                         }
+                        if (tracks.isNotEmpty()) {
+                            // Аудио хранится внутри приложения — отдаём наружу через «Поделиться»
+                            TextButton(onClick = {
+                                runCatching {
+                                    val uris = ArrayList(tracks.map { t ->
+                                        val u = android.net.Uri.parse(t.uri)
+                                        if (u.scheme == "file") androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", java.io.File(u.path!!)) else u
+                                    })
+                                    val send = if (uris.size == 1) {
+                                        android.content.Intent(android.content.Intent.ACTION_SEND).putExtra(android.content.Intent.EXTRA_STREAM, uris[0])
+                                    } else {
+                                        android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+                                    }
+                                    send.setType("audio/*").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    com.shoosman.bookapp.CrashLog.note("Книга: отправка аудио, файлов ${uris.size}")
+                                    ctx.startActivity(android.content.Intent.createChooser(send, "Отправить аудио"))
+                                }.onFailure { error = com.shoosman.bookapp.ErrorText.ru(it, "Не удалось отправить файл") to null }
+                            }) { Text(if (tracks.size == 1) "Поделиться аудиофайлом" else "Поделиться аудиофайлами (${tracks.size})") }
+                        }
 
                         if (b.hasText && b.hasAudio) {
                             Spacer(Modifier.height(16.dp))
