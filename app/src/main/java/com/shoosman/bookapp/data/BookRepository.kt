@@ -7,6 +7,7 @@ import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
+import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.audio.EmbeddedChapters
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
@@ -169,8 +170,10 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         if (sources.isEmpty()) error("Не найдено аудиофайлов")
         val names = sources.map { displayName(it) }
         val dir = newBookDir()
+        var holes: String? = null
         val id = try {
             val (_, files) = copyAudio(sources, dir, onProgress)
+            holes = holeReport(files, names)
             onProgress(ImportProgress("Читаю данные аудио…", null))
             val infos = files.mapIndexed { i, f -> readAudio(Uri.fromFile(f), names[i]) }
             val first = infos.first()
@@ -194,7 +197,8 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
             dir.deleteRecursively()
             throw e
         }
-        return ImportResult(id, deleteOriginals(sources, tree, isAudio = true))
+        // Файл с пустыми участками — оригинал не трогаем: вдруг он докачается или найдётся целый
+        return ImportResult(id, holes ?: deleteOriginals(sources, tree, isAudio = true))
     }
 
     private suspend fun replaceTracks(bookId: Long, sources: List<Uri>, tree: Uri?, onProgress: OnProgress): String? {
@@ -203,6 +207,7 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
         val dir = File(book.dir).apply { mkdirs() }
         val names = sources.map { displayName(it) }
         val (folder, files) = copyAudio(sources, dir, onProgress)
+        val holes = holeReport(files, names)
         onProgress(ImportProgress("Читаю данные аудио…", null))
         val infos = files.mapIndexed { i, f -> readAudio(Uri.fromFile(f), names[i]) }
         var cover = book.coverPath
@@ -225,7 +230,7 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
             ),
         )
         removeOldAudio(dir, keep = folder)
-        return deleteOriginals(sources, tree, isAudio = true)
+        return holes ?: deleteOriginals(sources, tree, isAudio = true)
     }
 
     /**
@@ -274,6 +279,36 @@ class BookRepository(private val ctx: Context, db: AppDatabase) {
             folder.deleteRecursively()
             throw e
         }
+    }
+
+    /**
+     * Ищет в аудиофайлах участки, забитые нулями (файл скачан не до конца). Там звука нет, а плеер «зависает».
+     * Возвращает предупреждение или null, если всё в порядке.
+     */
+    private fun holeReport(files: List<File>, names: List<String>): String? {
+        val bad = ArrayList<String>()
+        val buf = ByteArray(64 * 1024)
+        files.forEachIndexed { i, f ->
+            var emptyMb = 0L
+            runCatching {
+                java.io.RandomAccessFile(f, "r").use { raf ->
+                    val len = raf.length()
+                    var pos = 1L shl 20 // начало файла (заголовки) не проверяем
+                    while (pos + buf.size < len) {
+                        raf.seek(pos)
+                        raf.readFully(buf)
+                        if (buf.all { it.toInt() == 0 }) emptyMb++
+                        pos += 1L shl 20
+                    }
+                }
+            }
+            if (emptyMb >= 2) bad.add("«${names.getOrElse(i) { f.name }}» — около $emptyMb МБ пустоты")
+        }
+        if (bad.isEmpty()) return null
+        CrashLog.note("Импорт аудио: пустые участки — ${bad.joinToString("; ")}")
+        return "В аудио есть пустые участки — похоже, файл скачан не до конца, и в этих местах звука не будет:\n" +
+            bad.joinToString("\n") { "• $it" } +
+            "\n\nОригинал на телефоне не удалён. Скачайте файл заново и замените аудио на странице книги."
     }
 
     private fun removeOldAudio(dir: File, keep: File) {
