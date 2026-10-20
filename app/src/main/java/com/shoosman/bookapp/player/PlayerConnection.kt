@@ -56,6 +56,8 @@ data class PlayerUi(
     val chapterEndMs: Long = 0,
     /** Почему не играет (ошибка плеера), по-русски; null — всё в порядке. */
     val error: String? = null,
+    /** Файл «завис» в этом месте — показываем кнопку «Перескочить дальше». */
+    val stuck: Boolean = false,
 ) {
     /** Позиция и длительность внутри текущей главы. */
     val chapterPosMs: Long get() = (globalMs - chapterStartMs).coerceAtLeast(0)
@@ -464,10 +466,63 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         }
     }
 
+    private var bufferingSince = 0L
+    private var stuckReported = false
+
+    /**
+     * Локальный файл не должен «загружаться» долго. Если звук не идёт дольше 8 секунд —
+     * это место файла не читается (повреждён или недокопирован): говорим об этом и предлагаем перескочить.
+     */
+    private fun checkStuck(r: Player) {
+        val buffering = r.playbackState == Player.STATE_BUFFERING && r.playWhenReady
+        if (!buffering) {
+            bufferingSince = 0L
+            if (_ui.value.stuck) _ui.update { it.copy(stuck = false, error = null) }
+            stuckReported = false
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (bufferingSince == 0L) bufferingSince = now
+        if (now - bufferingSince > 8_000 && !stuckReported) {
+            stuckReported = true
+            val s = _ui.value
+            val file = tracks.getOrNull(r.currentMediaItemIndex)
+            val size = file?.uri?.let { u -> runCatching { File(Uri.parse(u).path!!).length() }.getOrNull() }
+            CrashLog.note("Плеер: завис на ${fmtMs(s.globalMs)} (файл ${r.currentMediaItemIndex + 1}, позиция ${fmtMs(r.currentPosition)}, размер ${size ?: "?"} байт, длительность ${fmtMs(file?.durationMs ?: 0)})")
+            _ui.update {
+                it.copy(
+                    stuck = true,
+                    error = "Это место файла не читается (около ${fmtMs(s.chapterPosMs)} в главе) — похоже, файл здесь повреждён. Можно перескочить дальше.",
+                )
+            }
+        }
+    }
+
+    private fun fmtMs(ms: Long): String {
+        val t = ms / 1000
+        return if (t >= 3600) "%d:%02d:%02d".format(t / 3600, t / 60 % 60, t % 60) else "%d:%02d".format(t / 60, t % 60)
+    }
+
+    /** Перескочить зависшее место: сначала на 30 секунд, при повторе — дальше. */
+    fun skipStuck() {
+        val c = controller ?: return
+        val jump = if (stuckJumps++ < 2) 30_000L else 120_000L
+        CrashLog.note("Плеер: перескок зависшего места на ${jump / 1000} с")
+        _ui.update { it.copy(stuck = false, error = null) }
+        stuckReported = false
+        bufferingSince = 0L
+        seekGlobal(_ui.value.globalMs + jump)
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+    }
+    private var stuckJumps = 0
+
     private fun refresh() {
         val c = controller ?: return
         if (_ui.value.bookId < 0) return
         val r = raw(c)
+        checkStuck(r)
+        if (r.playbackState == Player.STATE_READY && r.isPlaying) stuckJumps = 0
         val idx = r.currentMediaItemIndex.coerceAtLeast(0)
         val pos = r.currentPosition.coerceAtLeast(0)
         val known = tracks.getOrNull(idx)?.durationMs ?: 0L

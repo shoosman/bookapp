@@ -303,6 +303,12 @@ fun PlayerScreen(
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
+                    if (s.stuck) {
+                        androidx.compose.material3.TextButton(
+                            onClick = { player.skipStuck() },
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) { Text("Перескочить дальше") }
+                    }
                 }
 
                 // Управление
