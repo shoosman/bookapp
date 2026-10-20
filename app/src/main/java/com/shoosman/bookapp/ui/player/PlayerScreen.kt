@@ -294,6 +294,17 @@ fun PlayerScreen(
                     Text("- " + fmtTime((s.chapterDurMs - shownPos).coerceAtLeast(0)), style = MaterialTheme.typography.labelMedium)
                 }
 
+                // Почему не играет — прямо в плеере
+                s.error?.let { err ->
+                    Text(
+                        err,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+
                 // Управление
                 Spacer(Modifier.height(16.dp))
                 Row(

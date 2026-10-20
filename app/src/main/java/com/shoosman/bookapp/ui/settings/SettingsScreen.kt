@@ -152,12 +152,22 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     var report by remember { mutableStateOf<String?>(null) }
-                    OutlinedButton(
-                        onClick = { report = CrashLog.last() ?: "Сбоев пока не было 🎉" },
-                        modifier = Modifier.padding(top = 12.dp),
-                    ) { Text("Отчёт о последней ошибке") }
+                    var journal by remember { mutableStateOf<String?>(null) }
+                    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { journal = CrashLog.journal() }) { Text("Журнал действий") }
+                        OutlinedButton(onClick = { report = CrashLog.last() ?: "Сбоев и ошибок пока не было 🎉" }) { Text("Последняя ошибка") }
+                    }
+                    Text(
+                        "Если что-то молча не работает — повторите действие и пришлите «Журнал действий».",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                     report?.let {
                         ReportDialog("Последняя ошибка", "Скопируйте и пришлите этот текст, если что-то работает не так.", it) { report = null }
+                    }
+                    journal?.let {
+                        ReportDialog("Журнал действий", "Последние 40 действий в приложении. Скопируйте и пришлите.", it) { journal = null }
                     }
                 }
             }

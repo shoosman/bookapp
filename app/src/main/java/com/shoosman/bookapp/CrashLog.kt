@@ -55,6 +55,22 @@ object CrashLog {
         runCatching { File(appCtx.filesDir, PENDING).delete() }
     }
 
+    /** Журнал последних действий — даже если сбоев не было (для поиска причин «молча не работает»). */
+    @Synchronized
+    fun journal(): String = buildString {
+        val (name, code) = runCatching {
+            val info = appCtx.packageManager.getPackageInfo(appCtx.packageName, 0)
+            val versionCode = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+            (info.versionName ?: "?") to versionCode
+        }.getOrDefault("?" to 0L)
+        appendLine("Чтец $name ($code)")
+        appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}")
+        appendLine("Время: ${time("dd.MM.yyyy HH:mm:ss")}")
+        appendLine()
+        appendLine("Последние действия:")
+        if (trail.isEmpty()) appendLine("  —") else trail.forEach { appendLine("  $it") }
+    }
+
     /** Последний сохранённый отчёт (для настроек). */
     fun last(): String? = runCatching {
         File(appCtx.filesDir, LAST).takeIf { it.exists() }?.readText()

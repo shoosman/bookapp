@@ -54,6 +54,8 @@ data class PlayerUi(
     val chapterTitle: String = "",
     val chapterStartMs: Long = 0,
     val chapterEndMs: Long = 0,
+    /** Почему не играет (ошибка плеера), по-русски; null — всё в порядке. */
+    val error: String? = null,
 ) {
     /** Позиция и длительность внутри текущей главы. */
     val chapterPosMs: Long get() = (globalMs - chapterStartMs).coerceAtLeast(0)
@@ -132,6 +134,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying && _ui.value.error != null) _ui.update { it.copy(error = null) }
             refresh()
             if (!isPlaying) save(force = true)
         }
@@ -142,6 +145,28 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             refresh()
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val track = controller?.currentMediaItemIndex ?: -1
+            CrashLog.note("Плеер: ошибка ${error.errorCodeName}, файл ${track + 1}: ${error.cause?.javaClass?.simpleName} ${error.cause?.message?.take(120)}")
+            CrashLog.describe(error, "Ошибка воспроизведения")
+            val msg = when (error.errorCode) {
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
+                    "Аудиофайл не найден: его удалили или переместили. Прикрепите аудио заново на странице книги («Файлы книги»)."
+                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NO_PERMISSION ->
+                    "Нет доступа к аудиофайлу. Прикрепите аудио заново на странице книги — тогда оно перенесётся в приложение."
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ->
+                    "Не получается прочитать аудиофайл ${if (track >= 0) "№${track + 1} " else ""}— он повреждён или в неподдерживаемом формате."
+                androidx.media3.common.PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ->
+                    "Звук сейчас занят другим приложением или устройством. Попробуйте ещё раз."
+                else -> "Не удалось воспроизвести: " + com.shoosman.bookapp.ErrorText.ru(error) + " (${error.errorCodeName})"
+            }
+            _ui.update { it.copy(error = msg, isPlaying = false) }
         }
     }
 
@@ -246,7 +271,7 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
         } else if (startGlobalMs != null) {
             seekGlobal(startGlobalMs)
         }
-        if (play) c.play()
+        if (play) startPlayback(c)
         repo.markOpened(bookId)
         refresh()
     }
@@ -275,10 +300,25 @@ class PlayerConnection(private val app: Context, private val repo: BookRepositor
     fun toggle() {
         val c = controller ?: return
         CrashLog.note(if (c.isPlaying) "Плеер: пауза" else "Плеер: играть")
-        if (c.isPlaying) c.pause() else c.play()
+        if (c.isPlaying) c.pause() else startPlayback(c)
     }
 
-    fun play() { controller?.play() }
+    fun play() { controller?.let { startPlayback(it) } }
+
+    /** После ошибки или остановки плеер «спит» — без prepare() кнопка ▶ ничего не делает. */
+    private fun startPlayback(c: Player) {
+        CrashLog.note("Плеер: ▶ (состояние ${c.playbackState}, файлов ${c.mediaItemCount}, ошибка ${c.playerError?.errorCodeName ?: "нет"})")
+        if (c.mediaItemCount == 0) {
+            _ui.update { it.copy(error = "В плеере нет загруженной книги. Откройте книгу заново.") }
+            return
+        }
+        if (c.playerError != null || c.playbackState == Player.STATE_IDLE) {
+            _ui.update { it.copy(error = null) }
+            c.prepare()
+        }
+        if (c.playbackState == Player.STATE_ENDED) c.seekTo(0, 0)
+        c.play()
+    }
     fun pause() { controller?.pause() }
 
     fun seekGlobal(globalMs: Long) {
