@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Чтец">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F4ECDC">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="favicon.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}img{max-width:100%}</style>
+<script>window.CHTETS_PWA=true;if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
+<title>Чтец</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=PT+Serif:ital,wght@0,400;0,700;1,400&display=swap">
+<script src="jszip.min.js"></script>
+<style>
+/* Layout: a quiet library page, and a full-screen reader with one page at a time and no moving parts. */
+:root{
+  --bg:#F4ECDC; --fg:#3E3226; --muted:#8B7A66; --accent:#8A5638; --line:#E0D3BA;
+  --card:#EDE2CB; --sheet:#FAF4E8; --hl:rgba(196,140,70,.28); --scrim:rgba(40,28,16,.28);
+  --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  --bookfont:"Literata",Georgia,"Times New Roman",serif;
+  --fs:20px; --lh:1.6; --al:left; --hy:auto; --imgmax:70vh;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#1B1917; --fg:#D8D0C4; --muted:#8E857A; --accent:#D4A27E; --line:#34302B;
+  --card:#36322D; --sheet:#262320; --hl:rgba(212,162,126,.25); --scrim:rgba(0,0,0,.5); color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#1B1917; --fg:#D8D0C4; --muted:#8E857A; --accent:#D4A27E; --line:#34302B;
+  --card:#36322D; --sheet:#262320; --hl:rgba(212,162,126,.25); --scrim:rgba(0,0,0,.5); color-scheme:dark }
+/* Themes chosen inside the app win over the system */
+:root[data-rt="light"]{ --bg:#FBF8F2; --fg:#2E2924; --muted:#8C8378; --accent:#8A5638; --line:#E8E1D5; --card:#F2ECE2; --sheet:#FFFFFF; --hl:rgba(196,140,70,.25); --scrim:rgba(30,20,10,.25); color-scheme:light }
+:root[data-rt="sepia"]{ --bg:#F4ECDC; --fg:#3E3226; --muted:#8B7A66; --accent:#8A5638; --line:#E0D3BA; --card:#EDE2CB; --sheet:#FAF4E8; --hl:rgba(196,140,70,.28); --scrim:rgba(40,28,16,.28); color-scheme:light }
+:root[data-rt="grey"]{ --bg:#E4E2DD; --fg:#34322E; --muted:#7F7B73; --accent:#6A5F8C; --line:#D1CEC6; --card:#D9D6CF; --sheet:#EFEDE9; --hl:rgba(106,95,140,.2); --scrim:rgba(20,20,20,.25); color-scheme:light }
+:root[data-rt="green"]{ --bg:#E1EADB; --fg:#2E3A2B; --muted:#6F7F69; --accent:#4E7046; --line:#CCD9C4; --card:#D5E0CD; --sheet:#EEF3EA; --hl:rgba(78,112,70,.2); --scrim:rgba(20,30,20,.25); color-scheme:light }
+:root[data-rt="dark"]{ --bg:#1B1917; --fg:#D8D0C4; --muted:#8E857A; --accent:#D4A27E; --line:#34302B; --card:#36322D; --sheet:#262320; --hl:rgba(212,162,126,.25); --scrim:rgba(0,0,0,.5); color-scheme:dark }
+:root[data-rt="night"]{ --bg:#000000; --fg:#A39C92; --muted:#6A645C; --accent:#B98A66; --line:#211F1C; --card:#292620; --sheet:#151412; --hl:rgba(185,138,102,.25); --scrim:rgba(0,0,0,.6); color-scheme:dark }
+
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:16px;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,input:focus-visible,.row:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+svg.i{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- Library ---------- */
+#lib{max-width:600px;margin:0 auto;padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));padding-block:20px 48px;display:flex;flex-direction:column;gap:26px}
+#lib header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#lib h1{font-family:var(--bookfont);font-weight:600;font-size:30px;margin:0;letter-spacing:.01em}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 18px;border-radius:14px;background:var(--card);color:var(--fg);font-weight:500;font-size:16px}
+.btn.primary{background:var(--accent);color:var(--bg)}
+.btn.wide{width:100%}
+.btn.danger{background:#A2412F;color:#fff}
+.label{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.cont{display:grid;grid-template-columns:104px 1fr;gap:18px;align-items:start}
+.cover{width:100%;aspect-ratio:2/3;border-radius:6px;object-fit:cover;background:var(--card);box-shadow:0 1px 2px rgba(0,0,0,.12),0 6px 18px -8px rgba(0,0,0,.3);display:block}
+.cover.gen{display:flex;align-items:flex-end;padding:10px;box-sizing:border-box;font-family:var(--bookfont);font-size:12px;line-height:1.25;color:var(--bg);background:var(--accent);overflow:hidden}
+.cont .meta{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cont h2{font-family:var(--bookfont);font-size:20px;line-height:1.25;font-weight:600;margin:0;text-wrap:balance}
+.author{color:var(--muted);font-size:15px}
+.where{font-size:14px;color:var(--muted);margin-top:6px;line-height:1.4}
+.bar{height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.cont .btn{margin-top:12px}
+.shelf{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:44px 1fr auto;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);text-align:left;width:100%}
+.row .cover{border-radius:4px}
+.row .t{font-size:16px;line-height:1.3;min-width:0}
+.row .t b{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t span{color:var(--muted);font-size:14px}
+.row .more{width:40px;height:40px;display:grid;place-items:center;color:var(--muted);border-radius:10px}
+.empty{background:var(--card);border-radius:18px;padding:26px 22px;display:flex;flex-direction:column;gap:12px;line-height:1.5}
+.empty h2{font-family:var(--bookfont);font-weight:600;font-size:21px;margin:0}
+.empty p{margin:0;color:var(--fg)}
+.empty .formats{color:var(--muted);font-size:14px}
+.tip{border:1px solid var(--line);border-radius:16px;padding:14px 16px;display:grid;grid-template-columns:1fr auto;gap:8px;font-size:15px;line-height:1.45}
+.tip button{color:var(--muted);width:32px;height:32px;display:grid;place-items:center}
+.small{font-size:13.5px;color:var(--muted);line-height:1.5;text-align:center}
+
+/* ---------- Reader ---------- */
+#reader{position:fixed;inset:0;background:var(--bg);z-index:5}
+#vp{position:absolute;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 34px);bottom:calc(env(safe-area-inset-bottom,0px) + 36px);overflow:hidden;touch-action:manipulation}
+#flow{position:absolute;top:0;column-fill:auto;will-change:transform}
+#reader.anim #flow{transition:transform .22s ease-out}
+#reader.scroll #vp{top:env(safe-area-inset-top,0px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+#reader.scroll #flow{position:relative;left:auto!important;width:auto!important;height:auto!important;columns:auto!important;transform:none!important;max-width:36em;margin:0 auto;padding:28px var(--m,24px) 40px}
+#foot{position:absolute;left:0;right:0;bottom:0;height:36px;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;width:100%;box-sizing:border-box}
+#foot span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+#foot span:last-child{white-space:nowrap}
+#dim{position:fixed;inset:0;background:#000;pointer-events:none;z-index:40;opacity:0}
+
+.book{font-family:var(--bookfont);font-size:var(--fs);line-height:var(--lh);text-align:var(--al);-webkit-hyphens:var(--hy);hyphens:var(--hy);overflow-wrap:break-word;color:var(--fg)}
+.book p{margin:0;orphans:2;widows:2}
+.ps-space .book p{margin:0 0 .6em}
+.ps-indent .book p{text-indent:1.5em}
+.book h2.ct{font-size:1.32em;line-height:1.28;font-weight:600;margin:.3em 0 1.1em;text-align:left;-webkit-hyphens:manual;hyphens:manual;text-wrap:balance;break-after:avoid;text-indent:0}
+.book .partpage h2.ct{margin-top:30%;text-align:center;font-size:1.6em;letter-spacing:.04em}
+.book h4.sub{font-size:1.04em;line-height:1.35;font-weight:600;margin:1.3em 0 .55em;break-after:avoid;text-indent:0;text-align:left;-webkit-hyphens:manual;hyphens:manual}
+.book .gap{height:.9em}
+.book figure{margin:.9em 0;text-align:center;break-inside:avoid}
+.book figure img,.book img.inl{max-width:100%;max-height:var(--imgmax);object-fit:contain;border-radius:4px;vertical-align:middle}
+.book .q,.book .epi{border-left:2px solid var(--line);padding-left:.9em;margin-left:.2em;text-indent:0!important}
+.book .epi{font-style:italic;font-size:.95em}
+.book .ta{text-align:right;font-style:italic;text-indent:0!important}
+.book .v{text-indent:0!important;margin:0!important;padding-left:1.2em}
+.book .v.end{margin-bottom:.8em!important}
+.book .li{text-indent:0!important;padding-left:1.3em;position:relative}
+.book .li::before{content:"•";position:absolute;left:.35em;color:var(--muted)}
+.book .cap{font-size:.85em;color:var(--muted);text-align:center;text-indent:0!important}
+.book a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+.book a.nref{font-family:var(--ui);font-size:.62em;font-weight:600;vertical-align:super;line-height:0;text-decoration:none;padding:.5em .2em;margin:-.5em 0}
+.book sup a.nref,.book sub a.nref{vertical-align:baseline}
+.book strong{font-weight:600}
+.book hr{border:0;border-top:1px solid var(--line);margin:1.3em 30%}
+.book .tbl{overflow-x:auto;font-size:.82em;line-height:1.4;break-inside:avoid;margin:.8em 0;text-indent:0}
+.book table{border-collapse:collapse}
+.book td,.book th{border:1px solid var(--line);padding:.3em .5em;vertical-align:top;text-align:left}
+.book pre{white-space:pre-wrap;font-size:.85em}
+.book .hit{background:var(--hl);border-radius:3px;box-shadow:0 0 0 .2em var(--hl)}
+.book ::selection{background:var(--hl)}
+.chnav{display:flex;flex-direction:column;gap:6px;margin:2.2em 0 1em;font-family:var(--ui);text-indent:0}
+.chnav.top{margin:0 0 1.4em}
+.chnav button{border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-align:left;font-size:15px;line-height:1.35}
+.chnav button small{display:block;color:var(--muted);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+
+/* bars */
+.topbar,.botbar{position:fixed;left:0;right:0;background:var(--sheet);z-index:20;box-shadow:0 0 0 1px var(--line);padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(10px,env(safe-area-inset-right,0px));box-sizing:border-box}
+.topbar{top:0;padding-top:env(safe-area-inset-top,0px);display:flex;align-items:center;gap:2px;height:calc(env(safe-area-inset-top,0px) + 56px)}
+.topbar .ttl{flex:1;min-width:0;font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
+.ib{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;flex:none}
+.ib:active{background:var(--card)}
+.botbar{bottom:0;padding-top:12px;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;flex-direction:column;gap:10px}
+.botbar .chname{font-size:14px;text-align:center;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}
+.botbar .line{display:flex;align-items:center;gap:6px}
+.botbar input[type=range]{flex:1;min-width:0;accent-color:var(--accent);height:36px}
+.botbar .pct{font-size:13px;color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
+
+/* sheet */
+#scrim{position:fixed;inset:0;background:var(--scrim);z-index:30}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:31;background:var(--sheet);border-radius:20px 20px 0 0;max-height:78%;display:flex;flex-direction:column;box-shadow:0 -10px 30px -12px rgba(0,0,0,.3);max-width:640px;margin:0 auto}
+#sheet .sh-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 12px 8px 20px;flex:none}
+#sheet .sh-head h3{margin:0;font-size:17px;font-weight:600}
+#sheet .sh-body{overflow-y:auto;padding:4px 20px calc(env(safe-area-inset-bottom,0px) + 22px);-webkit-overflow-scrolling:touch}
+.toc a,.toc button{display:block;width:100%;text-align:left;padding:11px 0;border-bottom:1px solid var(--line);font-size:15.5px;line-height:1.35;color:var(--fg);text-decoration:none}
+.toc .d1{padding-left:16px}.toc .d2{padding-left:32px}
+.toc .done{color:var(--muted)}
+.toc .cur{font-weight:600;color:var(--accent)}
+.toc .part{font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:18px}
+.set{display:flex;flex-direction:column;gap:20px;padding-top:6px}
+.set .grp{display:flex;flex-direction:column;gap:9px}
+.set .gl{font-size:13px;color:var(--muted)}
+.swatches{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.sw{aspect-ratio:1;border-radius:50%;border:1px solid rgba(0,0,0,.15);font-family:var(--bookfont);font-size:15px;display:grid;place-items:center;max-width:46px;justify-self:center;width:100%}
+.sw[aria-pressed=true]{box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--accent)}
+.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;min-height:38px;border-radius:9px;font-size:14.5px;padding:0 6px}
+.seg button[aria-pressed=true]{background:var(--sheet);box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600}
+.step{display:flex;align-items:center;gap:10px}
+.step button{width:52px;height:42px;border-radius:12px;background:var(--card);font-size:20px}
+.step output{flex:1;text-align:center;font-variant-numeric:tabular-nums;font-size:15px}
+.fonts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fonts button{min-height:46px;border-radius:12px;background:var(--card);font-size:16.5px}
+.fonts button[aria-pressed=true]{box-shadow:inset 0 0 0 2px var(--accent)}
+.sw-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15.5px;min-height:40px}
+.sw-row input{width:22px;height:22px;accent-color:var(--accent)}
+.set input[type=range]{width:100%;accent-color:var(--accent)}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.item{padding:12px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start}
+.item .go{text-align:left;font-size:15.5px;line-height:1.45}
+.item .go small{display:block;color:var(--muted);font-size:13px;margin-top:3px}
+.item .x{color:var(--muted);width:36px;height:36px;display:grid;place-items:center}
+.quote-text{font-family:var(--bookfont)}
+.muted{color:var(--muted);font-size:14.5px;line-height:1.5}
+.search{display:flex;gap:8px;margin-bottom:8px}
+.search input{flex:1;min-width:0;min-height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:0 14px;font:inherit;font-size:16px}
+.res mark{background:var(--hl);color:inherit;border-radius:2px}
+.note{font-family:var(--bookfont);font-size:17px;line-height:1.55;overflow-wrap:anywhere}
+.note a{color:var(--accent)}
+#qbtn{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 48px);z-index:25;box-shadow:0 6px 20px -6px rgba(0,0,0,.35)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 54px);z-index:50;background:var(--fg);color:var(--bg);border-radius:12px;padding:11px 16px;font-size:14.5px;display:flex;gap:14px;align-items:center;max-width:calc(100% - 40px);box-sizing:border-box}
+#toast button{color:var(--bg);font-weight:600;text-decoration:underline}
+#busy{position:fixed;inset:0;z-index:60;background:var(--bg);display:grid;place-items:center;text-align:center;padding:24px}
+#busy p{font-family:var(--bookfont);font-size:19px;margin:0 0 6px}
+#imgview{position:fixed;inset:0;z-index:45;background:var(--bg);overflow:auto;display:flex;align-items:center;justify-content:center;touch-action:pinch-zoom pan-x pan-y}
+#imgview img{max-width:100%;max-height:100%;object-fit:contain}
+#imgview .ib{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);right:max(10px,env(safe-area-inset-right,0px));background:var(--sheet)}
+@media (prefers-reduced-motion: reduce){ #reader.anim #flow{transition:none} }
+</style>
+</head>
+<body>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-toc" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+  <symbol id="i-mark" viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3.5L7 20z"/></symbol>
+  <symbol id="i-aa" viewBox="0 0 24 24"><path d="M3 18l5-12 5 12M4.7 14h6.6M15 18v-1.2M15 12.5c.6-1 1.6-1.5 2.8-1.5 1.8 0 3 1 3 2.8V18M21 14.6c-3.6 0-5.9.6-5.9 2 0 1 .8 1.6 2 1.6 2 0 3.9-1.4 3.9-3.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+
+<main id="lib">
+  <header>
+    <h1>Чтец</h1>
+    <button class="btn" id="addBtn"><svg class="i"><use href="#i-plus"/></svg>Добавить книгу</button>
+  </header>
+  <div id="tip" class="tip" hidden>
+    <div>Чтобы Чтец открывался как приложение: в Safari нажмите <b>«Поделиться»</b> (квадрат со стрелкой) и выберите <b>«На экран „Домой“»</b>.</div>
+    <button id="tipX" aria-label="Скрыть подсказку"><svg class="i"><use href="#i-x"/></svg></button>
+  </div>
+  <section id="contWrap" hidden>
+    <p class="label">Сейчас читаю</p>
+    <div class="cont" id="cont"></div>
+  </section>
+  <section id="emptyWrap" hidden>
+    <div class="empty">
+      <h2>Здесь будут ваши книги</h2>
+      <p>Нажмите «Добавить книгу» и выберите файл книги в «Файлах». Книга останется в Чтеце, файл потом можно удалить.</p>
+      <p class="formats">Подходят FB2, FB2.ZIP, EPUB, TXT и HTML.</p>
+      <button class="btn primary wide" id="addBtn2">Выбрать файл книги</button>
+    </div>
+  </section>
+  <section id="shelfWrap" hidden>
+    <p class="label">Все книги</p>
+    <div class="shelf" id="shelf"></div>
+  </section>
+  <p class="small" id="storeNote">Книги, закладки и место, где вы остановились, хранятся только на этом телефоне.</p>
+  <input type="file" id="file" hidden>
+</main>
+
+<div id="reader" hidden>
+  <div id="vp"><div id="flow" class="book" lang="ru"></div></div>
+  <div id="foot"><span id="fl"></span><span id="fr"></span></div>
+</div>
+
+<div class="topbar" id="topbar" hidden>
+  <button class="ib" id="bBack" aria-label="К книгам"><svg class="i"><use href="#i-back"/></svg></button>
+  <div class="ttl" id="bTitle"></div>
+  <button class="ib" id="bToc" aria-label="Оглавление"><svg class="i"><use href="#i-toc"/></svg></button>
+  <button class="ib" id="bSearch" aria-label="Поиск"><svg class="i"><use href="#i-search"/></svg></button>
+  <button class="ib" id="bMarks" aria-label="Закладки и цитаты"><svg class="i"><use href="#i-mark"/></svg></button>
+  <button class="ib" id="bSet" aria-label="Оформление"><svg class="i"><use href="#i-aa"/></svg></button>
+</div>
+<div class="botbar" id="botbar" hidden>
+  <div class="chname" id="bCh"></div>
+  <div class="line">
+    <button class="ib" id="bPrevCh" aria-label="Предыдущая глава"><svg class="i"><use href="#i-prev"/></svg></button>
+    <input type="range" id="bRange" min="0" max="1000" value="0" aria-label="Место в книге">
+    <button class="ib" id="bNextCh" aria-label="Следующая глава"><svg class="i"><use href="#i-next"/></svg></button>
+  </div>
+  <div class="pct" id="bPct"></div>
+</div>
+
+<div id="scrim" hidden></div>
+<div id="sheet" hidden role="dialog" aria-modal="true">
+  <div class="sh-head"><h3 id="shTitle"></h3><button class="ib" id="shClose" aria-label="Закрыть"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="sh-body" id="shBody"></div>
+</div>
+<button class="btn primary" id="qbtn" hidden>Сохранить цитату</button>
+<div id="toast" hidden></div>
+<div id="imgview" hidden><img alt=""><button class="ib" aria-label="Закрыть картинку"><svg class="i"><use href="#i-x"/></svg></button></div>
+<div id="busy" hidden><div><p id="busyT">Открываю книгу…</p><div class="muted" id="busyS">Большие книги открываются несколько секунд</div></div></div>
+<div id="dim"></div>
+
+<script>
+(()=>{
+'use strict';
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const plain=h=>h.replace(/<[^>]+>/g,'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&');
+const CPM=1000; // знаков в минуту — примерная скорость чтения
+
+/* ================= storage ================= */
+const mem={books:new Map(),content:new Map(),meta:new Map()};
+const DB={db:null,ok:false,
+  async open(){try{this.db=await new Promise((res,rej)=>{const r=indexedDB.open('chtets',1);
+    r.onupgradeneeded=()=>{const d=r.result;for(const n of ['books','content','meta']) if(!d.objectStoreNames.contains(n)) d.createObjectStore(n,{keyPath:'id'});};
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('blocked'));});this.ok=true;}catch(e){this.ok=false;}
+    try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist();}catch(e){}},
+  req(store,mode,fn){return new Promise((res,rej)=>{const t=this.db.transaction(store,mode);const r=fn(t.objectStore(store));let out;if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error);});},
+  async get(s,k){if(!this.ok)return mem[s].get(k);try{return await this.req(s,'readonly',o=>o.get(k));}catch(e){return mem[s].get(k);}},
+  async put(s,v){mem[s].set(v.id,v);if(!this.ok)return;try{await this.req(s,'readwrite',o=>o.put(v));}catch(e){console.warn(e);throw e;}},
+  async del(s,k){mem[s].delete(k);if(!this.ok)return;try{await this.req(s,'readwrite',o=>o.delete(k));}catch(e){}},
+  async all(s){if(!this.ok)return [...mem[s].values()];try{return await this.req(s,'readonly',o=>o.getAll());}catch(e){return [...mem[s].values()];}}
+};
+const LS={get(k,d){try{const v=localStorage.getItem('chtets.'+k);return v==null?d:JSON.parse(v);}catch(e){return d;}},set(k,v){try{localStorage.setItem('chtets.'+k,JSON.stringify(v));}catch(e){}}};
+
+/* ================= settings ================= */
+const DEF={theme:'sepia',font:'literata',fs:20,lh:1.6,margin:'m',align:'left',hyph:true,para:'space',mode:'pages',anim:false,footer:true,wake:true,dim:0};
+let S=Object.assign({},DEF,LS.get('settings',{}));
+const FONTS={literata:['Literata','"Literata",Georgia,serif'],ptserif:['PT Serif','"PT Serif",Georgia,serif'],georgia:['Georgia','Georgia,"Times New Roman",serif'],sans:['Без засечек','-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif']};
+const THEMES=[['light','#FBF8F2','#2E2924','Светлая'],['sepia','#F4ECDC','#3E3226','Сепия'],['grey','#E4E2DD','#34322E','Серая'],['green','#E1EADB','#2E3A2B','Зелёная'],['dark','#1B1917','#D8D0C4','Тёмная'],['night','#000000','#A39C92','Ночная'],['system','linear-gradient(135deg,#F4ECDC 50%,#1B1917 50%)','#8B7A66','Как в системе']];
+const MARG={s:16,m:24,l:36};
+function applySettings(){
+  const r=document.documentElement;
+  if(S.theme==='system') r.removeAttribute('data-rt'); else r.setAttribute('data-rt',S.theme);
+  r.style.setProperty('--fs',S.fs+'px');r.style.setProperty('--lh',S.lh);
+  r.style.setProperty('--bookfont',FONTS[S.font][1]);
+  r.style.setProperty('--al',S.align==='justify'?'justify':'left');
+  r.style.setProperty('--hy',S.hyph?'auto':'manual');
+  r.style.setProperty('--m',MARG[S.margin]+'px');
+  document.body.classList.toggle('ps-space',S.para==='space');document.body.classList.toggle('ps-indent',S.para==='indent');
+  $('#reader').classList.toggle('scroll',S.mode==='scroll');
+  $('#reader').classList.toggle('anim',!!S.anim&&S.mode==='pages');
+  $('#foot').style.visibility=S.footer?'visible':'hidden';
+  $('#dim').style.opacity=$('#reader').hidden?0:S.dim;
+  const m=document.querySelector('meta[name=theme-color]');
+  if(m) m.content=getComputedStyle(r).getPropertyValue('--bg').trim();
+}
+function saveSettings(){LS.set('settings',S);}
+
+/* ================= parsing helpers ================= */
+function decodeText(buf){
+  const u=new Uint8Array(buf);const head=new TextDecoder('ascii').decode(u.slice(0,300));
+  const m=head.match(/encoding=["']([\w-]+)["']/i);
+  if(m){try{return new TextDecoder(m[1].toLowerCase()).decode(u);}catch(e){}}
+  if(u[0]===0xFF&&u[1]===0xFE) return new TextDecoder('utf-16le').decode(u);
+  if(u[0]===0xFE&&u[1]===0xFF) return new TextDecoder('utf-16be').decode(u);
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(u);}catch(e){return new TextDecoder('windows-1251').decode(u);}
+}
+function b64ToBuf(b){const s=atob(b.replace(/\s+/g,''));const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u.buffer;}
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
+function xhref(el){for(const a of el.attributes) if(a.localName==='href') return a.value||'';return '';}
+function txt(el){return (el.textContent||'').replace(/\s+/g,' ').trim();}
+
+/* blocks -> html with data-i on each readable block */
+function renderBlocks(blocks){
+  let i=0;const out=[];
+  const only=blocks.length===1&&blocks[0].t==='h';
+  for(const b of blocks){
+    const c=b.c?` class="${b.c}"`:'';
+    switch(b.t){
+      case 'h': out.push(`<h2 class="ct" data-i="${i++}">${b.h}</h2>`);break;
+      case 'sub': out.push(`<h4 class="sub" data-i="${i++}">${b.h}</h4>`);break;
+      case 'p': if(b.h.replace(/<br>/g,'').trim()) out.push(`<p data-i="${i++}"${c}>${b.h}</p>`);break;
+      case 'li': out.push(`<p data-i="${i++}" class="li${b.c?' '+b.c:''}">${b.h}</p>`);break;
+      case 'img': out.push(`<figure data-i="${i++}"><img data-img="${esc(b.id)}" alt=""></figure>`);break;
+      case 'gap': out.push('<div class="gap"></div>');break;
+      case 'hr': out.push('<hr>');break;
+      case 'table': out.push(`<div class="tbl" data-i="${i++}"><table>${b.h}</table></div>`);break;
+      case 'pre': out.push(`<pre data-i="${i++}">${b.h}</pre>`);break;
+      case 'cap': out.push(`<p data-i="${i++}" class="cap">${b.h}</p>`);break;
+    }
+  }
+  const html=out.join('');
+  return only?`<div class="partpage">${html}</div>`:html;
+}
+function mkChapter(title,depth,blocks,extra){
+  const html=renderBlocks(blocks);
+  return Object.assign({title:title||'Без названия',depth,html,len:Math.max(1,plain(html).length)},extra||{});
+}
+
+/* ================= FB2 ================= */
+function parseFB2(text){
+  let doc=new DOMParser().parseFromString(text,'application/xml');
+  if(doc.getElementsByTagName('parsererror').length){
+    const fixed=text.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);)/gi,'&amp;').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+    doc=new DOMParser().parseFromString(fixed,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length){doc=new DOMParser().parseFromString(fixed,'text/html');}
+  }
+  const q=(root,name)=>{const r=[];for(const e of root.getElementsByTagName('*')) if(e.localName===name) r.push(e);return r;};
+  const kids=(el,name)=>[...el.children].filter(e=>!name||e.localName===name);
+  const ti=q(doc,'title-info')[0]||doc;
+  const title=txt(q(ti,'book-title')[0]||{textContent:''})||'Без названия';
+  const au=q(ti,'author')[0];
+  const author=au?[q(au,'first-name')[0],q(au,'middle-name')[0],q(au,'last-name')[0]].filter(Boolean).map(txt).join(' ')||txt(q(au,'nickname')[0]||{textContent:''}):'';
+  const images={};
+  for(const b of q(doc,'binary')){const id=b.getAttribute('id');if(!id)continue;try{images[id]={type:b.getAttribute('content-type')||'image/jpeg',buf:b64ToBuf(b.textContent)};}catch(e){}}
+  let coverId=null;const cp=q(ti,'coverpage')[0];
+  if(cp){const im=q(cp,'image')[0];if(im){coverId=xhref(im).replace(/^#/,'');}}
+  const bodies=q(doc,'body');
+  const main=bodies.find(b=>!b.getAttribute('name'))||bodies[0];
+  const noteBodies=bodies.filter(b=>b!==main);
+  const notes={};
+  const inline=(el)=>{let s='';for(const n of el.childNodes){
+    if(n.nodeType===3){s+=esc(n.data);continue;} if(n.nodeType!==1)continue;
+    switch(n.localName){
+      case 'strong':s+='<strong>'+inline(n)+'</strong>';break;
+      case 'emphasis':s+='<em>'+inline(n)+'</em>';break;
+      case 'strikethrough':s+='<s>'+inline(n)+'</s>';break;
+      case 'sub':case 'sup':case 'code':s+=`<${n.localName}>${inline(n)}</${n.localName}>`;break;
+      case 'a':{const h=xhref(n);
+        if(h.startsWith('#')) s+=`<a class="nref" data-note="${esc(h.slice(1))}">${inline(n)}</a>`;
+        else if(/^https?:/i.test(h)) s+=`<a href="${esc(h)}" target="_blank" rel="noopener">${inline(n)}</a>`;
+        else s+=inline(n);break;}
+      case 'image':{const id=xhref(n).replace(/^#/,'');if(id) s+=`<img class="inl" data-img="${esc(id)}" alt="">`;break;}
+      default:s+=inline(n);
+    }}return s;};
+  const titleHtml=t=>kids(t).map(p=>inline(p)).filter(Boolean).join('<br>')||esc(txt(t));
+  const block=(n,out,cls)=>{
+    const nm=n.localName;
+    switch(nm){
+      case 'p':out.push({t:'p',h:inline(n),c:cls});break;
+      case 'subtitle':out.push({t:'sub',h:inline(n)});break;
+      case 'empty-line':out.push({t:'gap'});break;
+      case 'image':{const id=xhref(n).replace(/^#/,'');if(id)out.push({t:'img',id});break;}
+      case 'title':out.push({t:'sub',h:titleHtml(n)});break;
+      case 'epigraph':for(const k of kids(n)) block(k,out,'epi');break;
+      case 'cite':for(const k of kids(n)) block(k,out,'q');break;
+      case 'text-author':out.push({t:'p',h:inline(n),c:'ta'});break;
+      case 'poem':for(const k of kids(n)){
+          if(k.localName==='stanza'){const vs=kids(k);vs.forEach((v,j)=>{if(v.localName==='v')out.push({t:'p',h:inline(v),c:'v'+(j===vs.length-1?' end':'')});else block(v,out,cls);});}
+          else block(k,out,cls);}break;
+      case 'date':out.push({t:'p',h:inline(n),c:'ta'});break;
+      case 'table':{let h='';for(const tr of kids(n,'tr')){h+='<tr>'+kids(tr).map(td=>`<${td.localName==='th'?'th':'td'}>${inline(td)}</${td.localName==='th'?'th':'td'}>`).join('')+'</tr>';}out.push({t:'table',h});break;}
+      case 'annotation':case 'section':for(const k of kids(n)) block(k,out,cls);break;
+      default:if(n.children.length) for(const k of kids(n)) block(k,out,cls); else if(txt(n)) out.push({t:'p',h:esc(txt(n)),c:cls});
+    }
+  };
+  const chapters=[];
+  const walk=(sec,depth,isNotes)=>{
+    let cur=[],curTitle='',cont=false;
+    const push=()=>{if(cur.length){chapters.push(mkChapter(curTitle||guessTitle(cur),depth,cur,{cont,notes:isNotes||undefined}));}cur=[];};
+    for(const n of kids(sec)){
+      const nm=n.localName;
+      if(nm==='section'){push();walk(n,depth+1,isNotes);cont=true;}
+      else if(nm==='title'){const t=txt(n);if(!curTitle)curTitle=t;cur.push({t:'h',h:titleHtml(n)});}
+      else block(n,cur,'');
+    }
+    push();
+  };
+  const guessTitle=bl=>{const b=bl.find(x=>x.t==='p'||x.t==='h'||x.t==='sub');const t=b?plain(b.h).trim():'';return t?(t.length>60?t.slice(0,57)+'…':t):'Без названия';};
+  if(main){
+    // skip site promo blocks such as <myheader>/<myfooter>
+    for(const n of kids(main)){
+      if(n.localName==='section') walk(n,0,false);
+      else if(n.localName==='title'||n.localName==='epigraph'){const bl=[];if(n.localName==='title')bl.push({t:'h',h:titleHtml(n)});else block(n,bl,'');chapters.push(mkChapter(txt(n)||title,0,bl));}
+    }
+  }
+  for(const nb of noteBodies){
+    for(const el of nb.getElementsByTagName('*')){const id=el.getAttribute('id');if(!id)continue;
+      if(el.localName==='section'){notes[id]=kids(el).filter(k=>k.localName!=='title').map(k=>inline(k)).join('<br>');}
+      else notes[id]=inline(el);}
+    const nbTitle=kids(nb,'title')[0];
+    const before=chapters.length;
+    for(const n of kids(nb)) if(n.localName==='section') walk(n,0,true);
+    if(chapters.length===before){const bl=[];for(const n of kids(nb)) if(n.localName!=='title') block(n,bl,'');if(bl.length)chapters.push(mkChapter(nbTitle?txt(nbTitle):'Примечания',0,[{t:'h',h:esc(nbTitle?txt(nbTitle):'Примечания')},...bl],{notes:true}));}
+  }
+  if(coverId&&!images[coverId]) coverId=null;
+  return {title,author,chapters,notes,images,coverId};
+}
+
+/* ================= generic HTML/XHTML -> blocks ================= */
+const BLOCKS=new Set('p div section article aside header footer main nav h1 h2 h3 h4 h5 h6 blockquote ul ol li pre figure figcaption table hr dl dt dd center body html'.split(' '));
+const SKIP=new Set(['script','style','head','title','meta','link','noscript','template','iframe','object','embed','form','button','input','select','textarea']);
+function htmlBlocks(root,ctx){
+  const out=[];
+  const isBlockish=el=>{for(const c of el.children){const n=c.localName.toLowerCase();if(BLOCKS.has(n)||n==='svg'||(n==='img'&&!txt(el)))return true;}return false;};
+  const inline=el=>{let s='';for(const n of el.childNodes){
+    if(n.nodeType===3){s+=esc(n.data);continue;}if(n.nodeType!==1)continue;
+    const nm=n.localName.toLowerCase();if(SKIP.has(nm))continue;
+    switch(nm){
+      case 'em':case 'i':case 'cite':case 'dfn':case 'var':s+='<em>'+inline(n)+'</em>';break;
+      case 'strong':case 'b':s+='<strong>'+inline(n)+'</strong>';break;
+      case 'sup':case 'sub':case 's':case 'u':case 'code':case 'small':s+=`<${nm}>${inline(n)}</${nm}>`;break;
+      case 'del':case 'strike':s+='<s>'+inline(n)+'</s>';break;
+      case 'br':s+='<br>';break;
+      case 'img':{const id=ctx.img(n.getAttribute('src'));if(id)s+=`<img class="inl" data-img="${esc(id)}" alt="">`;break;}
+      case 'svg':{const im=n.querySelector('image');const id=im&&ctx.img(xhref(im));if(id)s+=`<img class="inl" data-img="${esc(id)}" alt="">`;break;}
+      case 'a':{const l=ctx.link(n.getAttribute('href')||'');
+        if(l&&l.note) s+=`<a class="nref" data-note="${esc(l.note)}">${inline(n)}</a>`;
+        else if(l&&l.ext) s+=`<a href="${esc(l.ext)}" target="_blank" rel="noopener">${inline(n)}</a>`;
+        else s+=inline(n);break;}
+      default:s+=inline(n);
+    }}return s;};
+  const walk=(el,cls)=>{
+    let buf='';const flush=()=>{if(buf.replace(/<br>/g,'').trim())out.push({t:'p',h:buf.trim(),c:cls});buf='';};
+    for(const n of el.childNodes){
+      if(n.nodeType===3){buf+=esc(n.data);continue;}if(n.nodeType!==1)continue;
+      const nm=n.localName.toLowerCase();if(SKIP.has(nm))continue;
+      if(nm==='nav'&&/toc|landmarks|page-list/.test(n.getAttribute('epub:type')||n.getAttributeNS&&n.getAttributeNS('http://www.idpf.org/2007/ops','type')||'')){continue;}
+      if(nm==='h1'||nm==='h2'){flush();out.push({t:'h',h:inline(n),lvl:1});}
+      else if(/^h[3-6]$/.test(nm)){flush();out.push({t:'sub',h:inline(n)});}
+      else if(nm==='p'||nm==='dt'||nm==='dd'){flush();if(isBlockish(n))walk(n,cls);else out.push({t:'p',h:inline(n),c:cls});}
+      else if(nm==='li'){flush();if(isBlockish(n))walk(n,cls);else out.push({t:'li',h:inline(n),c:cls});}
+      else if(nm==='blockquote'){flush();walk(n,'q');}
+      else if(nm==='hr'){flush();out.push({t:'hr'});}
+      else if(nm==='pre'){flush();out.push({t:'pre',h:esc(n.textContent)});}
+      else if(nm==='figcaption'){flush();out.push({t:'cap',h:inline(n)});}
+      else if(nm==='table'){flush();let h='';for(const tr of n.querySelectorAll('tr')){h+='<tr>'+[...tr.children].map(td=>{const t=td.localName.toLowerCase()==='th'?'th':'td';return `<${t}>${inline(td)}</${t}>`;}).join('')+'</tr>';}out.push({t:'table',h});}
+      else if(nm==='img'||nm==='svg'){const src=nm==='img'?n.getAttribute('src'):(n.querySelector('image')?xhref(n.querySelector('image')):'');const id=ctx.img(src);if(id){flush();out.push({t:'img',id});}}
+      else if(BLOCKS.has(nm)){flush();if(isBlockish(n))walk(n,cls);else{const h=inline(n).trim();if(h)out.push({t:'p',h,c:cls});}}
+      else buf+=inline({childNodes:[n]});
+    }
+    flush();
+  };
+  walk(root,'');
+  return out;
+}
+function splitByHeadings(blocks,fallbackTitle){
+  const chs=[];let cur=[],title='';
+  for(const b of blocks){if(b.t==='h'&&cur.length){chs.push(mkChapter(title||fallbackTitle,0,cur));cur=[];title='';}
+    if(b.t==='h'&&!title)title=plain(b.h).trim();cur.push(b);}
+  if(cur.length)chs.push(mkChapter(title||fallbackTitle,0,cur));
+  if(chs.length===1&&blocks.length>400){const big=[];for(let k=0;k<blocks.length;k+=250)big.push(mkChapter(`${fallbackTitle} · часть ${big.length+1}`,0,blocks.slice(k,k+250)));return big;}
+  return chs;
+}
+
+/* ================= EPUB / zip ================= */
+const resolvePath=(base,rel)=>{try{const u=new URL(rel,'http://x/'+base);return decodeURIComponent(u.pathname.slice(1));}catch(e){return rel;}};
+async function zipText(zip,path){const f=zip.file(path)||zip.file(Object.keys(zip.files).find(k=>k.toLowerCase()===path.toLowerCase())||'');return f?decodeText(await f.async('arraybuffer')):null;}
+function parseXml(s,type){let d=new DOMParser().parseFromString(s,type||'application/xhtml+xml');if(d.getElementsByTagName('parsererror').length)d=new DOMParser().parseFromString(s,'text/html');return d;}
+async function parseEPUB(zip){
+  const cont=parseXml(await zipText(zip,'META-INF/container.xml')||'','application/xml');
+  const rf=cont.getElementsByTagName('rootfile')[0];if(!rf)throw new Error('Нет описания EPUB');
+  const opfPath=rf.getAttribute('full-path');const opfDir=opfPath.includes('/')?opfPath.replace(/[^/]+$/,''):'';
+  const opf=parseXml(await zipText(zip,opfPath),'application/xml');
+  const byTag=(n)=>[...opf.getElementsByTagName('*')].filter(e=>e.localName===n);
+  const title=txt(byTag('title')[0]||{textContent:''})||'Без названия';
+  const author=byTag('creator').map(txt).join(', ');
+  const manifest={};for(const it of byTag('item')) manifest[it.getAttribute('id')]={href:resolvePath(opfDir,it.getAttribute('href')),type:it.getAttribute('media-type')||'',props:it.getAttribute('properties')||''};
+  const spine=byTag('itemref').map(r=>manifest[r.getAttribute('idref')]).filter(Boolean);
+  const images={};
+  const addImg=async(path)=>{if(images[path])return path;const f=zip.file(path);if(!f)return null;const buf=await f.async('arraybuffer');const ext=path.split('.').pop().toLowerCase();images[path]={type:ext==='png'?'image/png':ext==='gif'?'image/gif':ext==='svg'?'image/svg+xml':ext==='webp'?'image/webp':'image/jpeg',buf};return path;};
+  let coverId=null;
+  const ci=Object.values(manifest).find(m=>/cover-image/.test(m.props));
+  const metaCover=byTag('meta').find(m=>m.getAttribute('name')==='cover');
+  const cm=ci||(metaCover&&manifest[metaCover.getAttribute('content')]);
+  if(cm&&/image/.test(cm.type)) coverId=await addImg(cm.href);
+  // table of contents titles
+  const tocTitles={};
+  const nav=Object.values(manifest).find(m=>/\bnav\b/.test(m.props));
+  if(nav){const d=parseXml(await zipText(zip,nav.href)||'');for(const a of d.getElementsByTagName('a')){const h=resolvePath(nav.href,a.getAttribute('href')||'').split('#')[0];if(h&&!tocTitles[h])tocTitles[h]=txt(a);}}
+  else{const ncx=Object.values(manifest).find(m=>/ncx/.test(m.type));if(ncx){const d=parseXml(await zipText(zip,ncx.href)||'','application/xml');for(const np of [...d.getElementsByTagName('*')].filter(e=>e.localName==='navPoint')){const c=[...np.getElementsByTagName('*')].find(e=>e.localName==='content');const l=[...np.getElementsByTagName('*')].find(e=>e.localName==='text');if(c&&l){const h=resolvePath(ncx.href,c.getAttribute('src')||'').split('#')[0];if(!tocTitles[h])tocTitles[h]=txt(l);}}}}
+  const docs={};const pendingImgs=[];const noteKeys=new Set();
+  const chapters=[];
+  for(const it of spine){
+    if(!/html|xml/.test(it.type))continue;
+    const s=await zipText(zip,it.href);if(!s)continue;
+    const d=parseXml(s);docs[it.href]=d;
+    const ctx={
+      img:src=>{if(!src)return null;const p=resolvePath(it.href,src);pendingImgs.push(p);return p;},
+      link:h=>{if(!h)return null;if(/^https?:/i.test(h))return {ext:h};const [p,frag]=h.split('#');if(!frag)return null;const path=p?resolvePath(it.href,p):it.href;const key=path+'#'+frag;noteKeys.add(key);return {note:key};}
+    };
+    const body=d.body||d.getElementsByTagName('body')[0]||d.documentElement;
+    const blocks=htmlBlocks(body,ctx);
+    if(!blocks.length)continue;
+    if(chapters.length===0&&blocks.every(b=>b.t==='img')&&blocks.length<=2)continue; // cover page
+    let t=tocTitles[it.href];
+    if(!t){const h=blocks.find(b=>b.t==='h'||b.t==='sub');t=h?plain(h.h).trim():'';}
+    chapters.push(mkChapter(t||`Глава ${chapters.length+1}`,0,blocks));
+  }
+  for(const p of pendingImgs) await addImg(p);
+  const notes={};
+  for(const key of noteKeys){const [path,id]=key.split('#');const d=docs[path];if(!d)continue;
+    let el=d.getElementById&&d.getElementById(id);if(!el){try{el=d.querySelector(`[id="${CSS.escape(id)}"],[name="${CSS.escape(id)}"]`);}catch(e){}}
+    if(!el)continue;
+    let blk=el;while(blk&&blk.localName&&!/^(p|li|aside|div|section|dd|td|body)$/i.test(blk.localName))blk=blk.parentNode;
+    if(!blk||/body/i.test(blk.localName))blk=el;
+    const bl=htmlBlocks(blk,{img:()=>null,link:h=>/^https?:/i.test(h||'')?{ext:h}:null});
+    const h=bl.map(b=>b.h||'').filter(Boolean).join('<br>');if(h)notes[key]=h;}
+  if(!chapters.length)throw new Error('В EPUB не найден текст');
+  return {title,author,chapters,notes,images,coverId};
+}
+async function parseHTMLDoc(text,name,zip,base){
+  const d=new DOMParser().parseFromString(text,'text/html');
+  const images={};const pend=[];
+  const ctx={img:src=>{if(!zip||!src||/^(https?|data):/i.test(src))return null;const p=resolvePath(base||'',src);pend.push(p);return p;},link:h=>/^https?:/i.test(h||'')?{ext:h}:null};
+  const blocks=htmlBlocks(d.body||d.documentElement,ctx);
+  if(zip)for(const p of pend){const f=zip.file(p);if(f){const ext=p.split('.').pop().toLowerCase();images[p]={type:ext==='png'?'image/png':ext==='gif'?'image/gif':'image/jpeg',buf:await f.async('arraybuffer')};}}
+  const title=txt(d.querySelector('title')||{textContent:''})||name;
+  return {title,author:'',chapters:splitByHeadings(blocks,title),notes:{},images,coverId:null};
+}
+function parseTXT(text,name){
+  const lines=text.replace(/\r\n?/g,'\n').split('\n');
+  const chs=[];let cur=[],title=name;
+  const isHead=l=>l.length<80&&/^\s*(глава|часть|chapter|part|пролог|эпилог|предисловие|послесловие|введение|заключение)\b/i.test(l);
+  let para=[];const flushP=()=>{if(para.length){cur.push({t:'p',h:esc(para.join(' '))});para=[];}};
+  const indented=lines.filter(l=>/^\s{2,}\S/.test(l)).length>lines.length*0.2;
+  for(const raw of lines){const l=raw.trim();
+    if(!l){flushP();continue;}
+    if(isHead(l)){flushP();if(cur.length)chs.push(mkChapter(title,0,cur));cur=[{t:'h',h:esc(l)}];title=l;continue;}
+    if(indented&&/^\s{2,}\S/.test(raw))flushP();
+    para.push(l);if(!indented){}
+  }
+  flushP();if(cur.length)chs.push(mkChapter(title,0,cur));
+  if(chs.length===1&&cur.length>400)return {title:name,author:'',chapters:splitByHeadings(cur.map(b=>b),name),notes:{},images:{},coverId:null};
+  return {title:name,author:'',chapters:chs,notes:{},images:{},coverId:null};
+}
+async function parseFile(file){
+  const buf=await file.arrayBuffer();const u=new Uint8Array(buf);
+  const name=file.name.replace(/\.(fb2\.zip|fb2|epub|zip|txt|html?)$/i,'').replace(/[_]+/g,' ');
+  if(u[0]===0x50&&u[1]===0x4B){
+    if(typeof JSZip==='undefined')throw new Error('Не загрузился модуль для архивов. Проверьте интернет и попробуйте ещё раз.');
+    const zip=await JSZip.loadAsync(buf);
+    if(zip.file('META-INF/container.xml'))return parseEPUB(zip);
+    const names=Object.keys(zip.files).filter(k=>!zip.files[k].dir&&!/^__MACOSX/.test(k));
+    const pick=ext=>names.filter(n=>n.toLowerCase().endsWith(ext)).sort((a,b)=>(zip.files[b]._data&&zip.files[b]._data.uncompressedSize||0)-(zip.files[a]._data&&zip.files[a]._data.uncompressedSize||0))[0];
+    let f;
+    if((f=pick('.fb2')))return parseFB2(decodeText(await zip.file(f).async('arraybuffer')));
+    if((f=pick('.epub')))return parseFile(new File([await zip.file(f).async('arraybuffer')],f));
+    if((f=pick('.html')||pick('.htm')||pick('.xhtml')))return parseHTMLDoc(decodeText(await zip.file(f).async('arraybuffer')),name,zip,f);
+    if((f=pick('.txt')))return parseTXT(decodeText(await zip.file(f).async('arraybuffer')),name);
+    throw new Error('В архиве нет книги, которую Чтец умеет открывать.');
+  }
+  const text=decodeText(buf);const head=text.slice(0,2000);
+  if(/<FictionBook/i.test(head)||/\.fb2$/i.test(file.name))return parseFB2(text);
+  if(/<html|<!doctype html|<body/i.test(head)||/\.html?$/i.test(file.name))return parseHTMLDoc(text,name);
+  return parseTXT(text,name);
+}
+
+/* ================= library ================= */
+let books=[];const metaCache=new Map();
+function coverEl(b,cls){
+  if(b.cover){const img=document.createElement('img');img.className='cover'+(cls?' '+cls:'');img.alt='';img.src=URL.createObjectURL(new Blob([b.cover.buf],{type:b.cover.type}));return img;}
+  const d=document.createElement('div');d.className='cover gen'+(cls?' '+cls:'');d.textContent=b.title;return d;
+}
+function whereText(b,m){
+  if(!m||!m.pos)return 'Ещё не начата';
+  const ch=b.toc&&b.toc[m.pos.ch];const p=Math.round((m.pct||0)*100);
+  return `${ch?ch+' · ':''}прочитано ${p}%`;
+}
+async function renderLib(){
+  books=(await DB.all('books')).sort((a,b)=>(b.opened||b.added||0)-(a.opened||a.added||0));
+  for(const b of books){if(!metaCache.has(b.id))metaCache.set(b.id,await DB.get('meta',b.id));}
+  $('#emptyWrap').hidden=books.length>0;$('#contWrap').hidden=!books.length;$('#shelfWrap').hidden=books.length<2;
+  $('#addBtn').hidden=!books.length;
+  if(books.length){
+    const b=books[0],m=metaCache.get(b.id);const c=$('#cont');c.innerHTML='';
+    const cv=coverEl(b);c.appendChild(cv);
+    const meta=document.createElement('div');meta.className='meta';
+    meta.innerHTML=`<h2>${esc(b.title)}</h2>${b.author?`<div class="author">${esc(b.author)}</div>`:''}<div class="where">${esc(whereText(b,m))}</div><div class="bar"><i style="width:${Math.round(((m&&m.pct)||0)*100)}%"></i></div>`;
+    const go=document.createElement('button');go.className='btn primary wide';go.textContent=m&&m.pos?'Продолжить чтение':'Начать читать';go.onclick=()=>openBook(b.id);
+    meta.appendChild(go);c.appendChild(meta);
+    cv.style.cursor='pointer';cv.onclick=()=>openBook(b.id);
+  }
+  const sh=$('#shelf');sh.innerHTML='';
+  for(const b of books.slice(1)){
+    const m=metaCache.get(b.id);
+    const row=document.createElement('div');row.className='row';
+    const cv=coverEl(b);row.appendChild(cv);
+    const t=document.createElement('button');t.className='t';t.style.textAlign='left';t.innerHTML=`<b>${esc(b.title)}</b><span>${esc(b.author||'')}${b.author?' · ':''}${m&&m.pct?Math.round(m.pct*100)+'%':'не начата'}</span>`;t.onclick=()=>openBook(b.id);
+    cv.onclick=()=>openBook(b.id);
+    const more=document.createElement('button');more.className='more';more.setAttribute('aria-label','Действия с книгой');more.innerHTML='<svg class="i"><use href="#i-more"/></svg>';more.onclick=()=>bookMenu(b);
+    row.append(t,more);sh.appendChild(row);
+  }
+  if(books.length){const holder=$('#cont .meta');if(holder){const l=document.createElement('button');l.className='more';l.style.cssText='align-self:flex-start;color:var(--muted);font-size:14px;margin-top:4px;text-decoration:underline;text-underline-offset:3px';l.textContent='Удалить книгу…';l.onclick=()=>bookMenu(books[0]);holder.appendChild(l);}}
+  $('#storeNote').textContent=DB.ok?'Книги, закладки и место, где вы остановились, хранятся только на этом телефоне.':'Этот браузер не даёт сохранять книги: после закрытия страницы книгу придётся открыть заново.';
+}
+function bookMenu(b){
+  openSheet(b.title,body=>{
+    body.innerHTML=`<div class="set"><button class="btn primary wide" id="mRead">Читать</button><button class="btn wide" id="mDel">Удалить с телефона</button><div id="mConf" hidden class="grp"><p class="muted" style="margin:0">Книга, закладки и цитаты из неё удалятся. Чтобы читать снова, книгу нужно будет добавить из файла.</p><button class="btn danger wide" id="mYes">Удалить</button><button class="btn wide" id="mNo">Оставить</button></div></div>`;
+    body.querySelector('#mRead').onclick=()=>{closeSheet();openBook(b.id);};
+    body.querySelector('#mDel').onclick=e=>{e.currentTarget.hidden=true;body.querySelector('#mConf').hidden=false;};
+    body.querySelector('#mNo').onclick=closeSheet;
+    body.querySelector('#mYes').onclick=async()=>{await DB.del('books',b.id);await DB.del('content',b.id);await DB.del('meta',b.id);metaCache.delete(b.id);closeSheet();renderLib();toast('Книга удалена');};
+  });
+}
+async function addFile(file){
+  if(!file)return;
+  busy(true,'Открываю книгу…');
+  try{
+    const r=await parseFile(file);
+    if(!r.chapters.length)throw new Error('В файле не нашёлся текст.');
+    const total=r.chapters.reduce((s,c)=>s+c.len,0);
+    const id='b'+hashStr(r.title+'|'+r.author+'|'+total);
+    const exists=await DB.get('books',id);
+    const cover=r.coverId&&r.images[r.coverId]?r.images[r.coverId]:null;
+    const toc=r.chapters.map(c=>c.title);
+    await DB.put('content',{id,chapters:r.chapters,notes:r.notes,images:r.images});
+    await DB.put('books',{id,title:r.title,author:r.author,cover,toc,total,added:exists?exists.added:Date.now(),opened:Date.now()});
+    busy(false);
+    if(exists)toast('Эта книга уже была — место чтения сохранилось');
+    await renderLib();
+    openBook(id);
+  }catch(e){console.error(e);busy(false);toast('Не получилось открыть файл. '+(e&&e.message&&/[а-я]/i.test(e.message)?e.message:'Подходят FB2, FB2.ZIP, EPUB, TXT.'),6000);}
+}
+function busy(on,t){$('#busy').hidden=!on;if(t)$('#busyT').textContent=t;}
+
+/* ================= reader ================= */
+const R={book:null,content:null,meta:null,ch:0,page:0,pages:1,W:0,H:0,els:[],starts:[],urls:{},before:[],total:1,barsOpen:false,saveT:0,wl:null};
+const vp=$('#vp'),flow=$('#flow');
+async function openBook(id){
+  busy(true,'Открываю книгу…');
+  const book=await DB.get('books',id),content=await DB.get('content',id);
+  if(!book||!content){busy(false);toast('Книга не найдена — добавьте её заново из файла');renderLib();return;}
+  for(const u of Object.values(R.urls))URL.revokeObjectURL(u);R.urls={};
+  for(const [k,v] of Object.entries(content.images||{}))R.urls[k]=URL.createObjectURL(new Blob([v.buf],{type:v.type}));
+  R.book=book;R.content=content;
+  R.meta=(await DB.get('meta',id))||{id,pos:null,pct:0,bookmarks:[],quotes:[]};
+  R.meta.bookmarks=R.meta.bookmarks||[];R.meta.quotes=R.meta.quotes||[];
+  R.before=[];let acc=0;for(const c of content.chapters){R.before.push(acc);acc+=c.len;}R.total=acc||1;
+  book.opened=Date.now();DB.put('books',book).catch(()=>{});
+  $('#lib').hidden=true;$('#reader').hidden=false;$('#bTitle').textContent=book.title;
+  applySettings();
+  const pos=R.meta.pos||{ch:firstReadable(),i:0,off:0};
+  await openChapter(clamp(pos.ch,0,content.chapters.length-1),pos);
+  busy(false);
+  wake();
+}
+function firstReadable(){return 0;}
+function closeBook(){
+  savePos(true);hideBars();$('#reader').hidden=true;$('#lib').hidden=false;flow.innerHTML='';
+  if(R.meta)metaCache.set(R.meta.id,R.meta);
+  applySettings();releaseWake();renderLib();
+}
+async function openChapter(ch,target){
+  R.ch=ch;const c=R.content.chapters[ch];
+  let html=c.html;
+  if(S.mode==='scroll'){
+    const prev=ch>0?`<div class="chnav top"><button data-go="${ch-1}"><small>Предыдущая глава</small>${esc(R.content.chapters[ch-1].title)}</button></div>`:'';
+    const next=ch<R.content.chapters.length-1?`<div class="chnav"><button data-go="${ch+1}"><small>Дальше</small>${esc(R.content.chapters[ch+1].title)}</button></div>`:'<div class="chnav"><p class="muted" style="text-align:center">Конец книги</p></div>';
+    html=prev+html+next;
+  }
+  flow.innerHTML=html;
+  const imgs=[...flow.querySelectorAll('img[data-img]')];
+  for(const im of imgs){const u=R.urls[im.dataset.img];if(u)im.src=u;else im.remove();}
+  await Promise.all(imgs.filter(i=>i.isConnected).map(i=>i.decode?i.decode().catch(()=>{}):Promise.resolve()));
+  layout();
+  goTarget(target);
+}
+function layout(){
+  const r=vp.getBoundingClientRect();
+  R.W=Math.floor(r.width);R.H=Math.floor(r.height);
+  if(S.mode==='scroll'){
+    document.documentElement.style.setProperty('--imgmax',Math.floor(r.height*0.8)+'px');
+    R.els=[...flow.querySelectorAll('[data-i]')];return;
+  }
+  const M=MARG[S.margin];const cw=R.W-2*M;
+  flow.style.left=M+'px';flow.style.width=cw+'px';flow.style.height=R.H+'px';
+  flow.style.columnWidth=cw+'px';flow.style.columnGap=(2*M)+'px';flow.style.columnCount='auto';
+  document.documentElement.style.setProperty('--imgmax',(R.H-24)+'px');
+  flow.style.transform='translate3d(0,0,0)';
+  R.els=[...flow.querySelectorAll('[data-i]')];
+  const fl=flow.getBoundingClientRect().left;
+  const pageOf=el=>{const rs=el.getClientRects();if(!rs.length)return -1;return Math.max(0,Math.floor((rs[0].left-fl+2)/R.W));};
+  R.starts=R.els.map(pageOf);
+  for(let k=1;k<R.starts.length;k++)if(R.starts[k]<0)R.starts[k]=R.starts[k-1];
+  let last=0;
+  const lastEl=flow.lastElementChild;
+  const all=[...(lastEl?[lastEl]:[]),...R.els.slice(-3)];
+  for(const el of all){for(const rr of el.getClientRects()){if(rr.width>0||rr.height>0)last=Math.max(last,Math.floor((rr.left-fl+2)/R.W));}}
+  R.pages=Math.max(1,last+1);
+}
+function goTarget(t){
+  if(S.mode==='scroll'){
+    let y=0;
+    if(t==='end')y=vp.scrollHeight;
+    else if(t&&typeof t==='object'&&t.i!=null){const el=R.els.find(e=>+e.dataset.i===t.i);if(el)y=el.offsetTop-14;}
+    else if(t&&t.frac!=null)y=t.frac*(vp.scrollHeight-vp.clientHeight);
+    else if(t!=='start'){}
+    vp.scrollTop=Math.max(0,y);updateFoot();savePos();return;
+  }
+  let p=0;
+  if(t==='end')p=R.pages-1;
+  else if(t&&typeof t==='object'&&t.i!=null){const k=R.els.findIndex(e=>+e.dataset.i===t.i);if(k>=0)p=R.starts[k]+(t.off||0);}
+  else if(t&&t.frac!=null)p=Math.round(t.frac*(R.pages-1));
+  goPage(p,true);
+}
+function goPage(p,noAnim){
+  R.page=clamp(p,0,R.pages-1);
+  if(noAnim){$('#reader').classList.remove('anim');}
+  flow.style.transform=`translate3d(${-R.page*R.W}px,0,0)`;
+  if(noAnim&&S.anim){void flow.offsetWidth;$('#reader').classList.add('anim');}
+  clearHits();updateFoot();savePos();
+}
+function curPos(){
+  if(S.mode==='scroll'){
+    const top=vp.scrollTop;let best=null;
+    for(const el of R.els){if(el.offsetTop+el.offsetHeight>top+4){best=el;break;}}
+    return {ch:R.ch,i:best?+best.dataset.i:0,off:0};
+  }
+  const p=R.page;const st=R.starts;
+  let lo=0,hi=st.length;while(lo<hi){const m=(lo+hi)>>1;if(st[m]<p)lo=m+1;else hi=m;}
+  if(lo<st.length&&st[lo]===p)return {ch:R.ch,i:+R.els[lo].dataset.i,off:0};
+  if(lo>0)return {ch:R.ch,i:+R.els[lo-1].dataset.i,off:p-st[lo-1]};
+  return {ch:R.ch,i:0,off:p};
+}
+function chFrac(){
+  if(S.mode==='scroll'){const m=vp.scrollHeight-vp.clientHeight;return m>0?clamp(vp.scrollTop/m,0,1):0;}
+  return R.pages>1?R.page/(R.pages-1):0;
+}
+function bookPct(){const c=R.content.chapters[R.ch];return clamp((R.before[R.ch]+chFrac()*c.len)/R.total,0,1);}
+function minsLeft(){
+  const c=R.content.chapters[R.ch];
+  const left=S.mode==='scroll'?(1-chFrac())*c.len:(R.pages>1?(R.pages-1-R.page)/R.pages*c.len:0);
+  const m=Math.round(left/CPM);
+  return m<1?'глава заканчивается':`ещё ≈${m} мин`;
+}
+function updateFoot(){
+  const c=R.content.chapters[R.ch];
+  $('#fl').textContent=c.title;
+  $('#fr').textContent=S.mode==='scroll'?minsLeft():`${R.page+1} / ${R.pages} · ${minsLeft()}`;
+  if(R.barsOpen)updateBars();
+}
+function savePos(now){
+  if(!R.meta)return;
+  clearTimeout(R.saveT);
+  const doit=()=>{R.meta.pos=curPos();R.meta.pct=bookPct();R.meta.at=Date.now();DB.put('meta',R.meta).catch(()=>{});};
+  if(now)doit();else R.saveT=setTimeout(doit,500);
+}
+async function next(){if(R.page<R.pages-1)goPage(R.page+1);else if(R.ch<R.content.chapters.length-1)await openChapter(R.ch+1,'start');else toast('Это конец книги');}
+async function prev(){if(R.page>0)goPage(R.page-1);else if(R.ch>0)await openChapter(R.ch-1,'end');}
+async function relayout(){if($('#reader').hidden||!R.content)return;const pos=curPos();await openChapter(R.ch,pos);}
+
+/* taps and swipes */
+let tStart=null,swiped=false;
+vp.addEventListener('touchstart',e=>{if(e.touches.length!==1){tStart=null;return;}const t=e.touches[0];tStart={x:t.clientX,y:t.clientY,at:Date.now()};},{passive:true});
+vp.addEventListener('touchend',e=>{
+  if(!tStart||S.mode==='scroll')return;const t=e.changedTouches[0];const dx=t.clientX-tStart.x,dy=t.clientY-tStart.y;tStart=null;
+  const sel=getSelection();if(sel&&!sel.isCollapsed)return;
+  if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.4){swiped=true;setTimeout(()=>swiped=false,400);if(R.barsOpen)hideBars();dx<0?next():prev();}
+},{passive:true});
+vp.addEventListener('click',e=>{
+  if(swiped){swiped=false;return;}
+  const sel=getSelection();if(sel&&!sel.isCollapsed)return;
+  const go=e.target.closest('[data-go]');if(go){openChapter(+go.dataset.go,'start');return;}
+  const a=e.target.closest('a');
+  if(a){if(a.classList.contains('nref')){e.preventDefault();showNote(a.dataset.note);}return;}
+  const img=e.target.closest('img');
+  if(R.barsOpen){if(img){showImage(img.src);return;}hideBars();return;}
+  const x=e.clientX/window.innerWidth;
+  if(S.mode==='scroll'){if(img){showImage(img.src);return;}showBars();return;}
+  if(x<0.3)prev();else if(x>0.7)next();else showBars();
+});
+$('#foot').addEventListener('click',()=>R.barsOpen?hideBars():showBars());
+let scrT=0;vp.addEventListener('scroll',()=>{if(S.mode!=='scroll')return;clearTimeout(scrT);scrT=setTimeout(()=>{updateFoot();savePos();},120);},{passive:true});
+document.addEventListener('keydown',e=>{
+  if($('#reader').hidden||!$('#sheet').hidden)return;
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){if(S.mode==='pages'){e.preventDefault();next();}}
+  else if(e.key==='ArrowLeft'||e.key==='PageUp'){if(S.mode==='pages'){e.preventDefault();prev();}}
+  else if(e.key==='Escape')hideBars();
+});
+let rzT=0;window.addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(!$('#reader').hidden&&(Math.floor(vp.getBoundingClientRect().width)!==R.W||Math.floor(vp.getBoundingClientRect().height)!==R.H))relayout();},250);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)savePos(true);else if(!$('#reader').hidden)wake();});
+window.addEventListener('pagehide',()=>savePos(true));
+
+/* bars */
+function showBars(){R.barsOpen=true;$('#topbar').hidden=false;$('#botbar').hidden=false;updateBars();}
+function hideBars(){R.barsOpen=false;$('#topbar').hidden=true;$('#botbar').hidden=true;}
+function updateBars(){
+  const c=R.content.chapters[R.ch];$('#bCh').textContent=c.title;
+  const p=bookPct();$('#bRange').value=Math.round(p*1000);
+  $('#bPct').textContent=`Раздел ${R.ch+1} из ${R.content.chapters.length} · прочитано ${Math.round(p*100)}%`;
+}
+function locate(frac){const target=frac*R.total;let ch=0;for(let k=0;k<R.before.length;k++){if(R.before[k]<=target)ch=k;}const c=R.content.chapters[ch];return {ch,frac:clamp((target-R.before[ch])/c.len,0,1)};}
+$('#bRange').addEventListener('input',e=>{const l=locate(e.target.value/1000);$('#bCh').textContent=R.content.chapters[l.ch].title;$('#bPct').textContent=`Перейти: ${Math.round(e.target.value/10)}%`;});
+$('#bRange').addEventListener('change',e=>{const l=locate(e.target.value/1000);openChapter(l.ch,{frac:l.frac});});
+$('#bPrevCh').onclick=()=>{if(R.ch>0)openChapter(R.ch-1,'start');};
+$('#bNextCh').onclick=()=>{if(R.ch<R.content.chapters.length-1)openChapter(R.ch+1,'start');};
+$('#bBack').onclick=closeBook;
+$('#bToc').onclick=showToc;$('#bSet').onclick=showSettings;$('#bMarks').onclick=()=>showMarks('marks');$('#bSearch').onclick=showSearch;
+
+/* sheet */
+let sheetOnClose=null;
+function openSheet(title,fill,onClose){$('#shTitle').textContent=title;const b=$('#shBody');b.innerHTML='';b.scrollTop=0;fill(b);$('#scrim').hidden=false;$('#sheet').hidden=false;sheetOnClose=onClose||null;}
+function closeSheet(){$('#scrim').hidden=true;$('#sheet').hidden=true;const f=sheetOnClose;sheetOnClose=null;if(f)f();}
+$('#scrim').onclick=closeSheet;$('#shClose').onclick=closeSheet;
+
+function showToc(){
+  openSheet('Оглавление',b=>{
+    const box=document.createElement('div');box.className='toc';
+    R.content.chapters.forEach((c,k)=>{if(c.cont)return;
+      const bt=document.createElement('button');bt.textContent=c.title;
+      const isPart=/^(часть|part)\b/i.test(c.title)&&c.len<200;
+      bt.className=(isPart?'part ':'')+'d'+Math.min(c.depth,2)+(k===R.ch?' cur':k<R.ch?' done':'');
+      bt.onclick=()=>{closeSheet();hideBars();openChapter(k,'start');};
+      box.appendChild(bt);});
+    b.appendChild(box);
+    requestAnimationFrame(()=>{const cur=box.querySelector('.cur');if(cur)cur.scrollIntoView({block:'center'});});
+  });
+}
+function showSettings(){
+  const pos=curPos();
+  openSheet('Оформление',b=>{
+    const seg=(key,opts)=>`<div class="seg" data-k="${key}">${opts.map(([v,l])=>`<button data-v="${v}" aria-pressed="${String(S[key])===String(v)}">${l}</button>`).join('')}</div>`;
+    b.innerHTML=`<div class="set">
+      <div class="grp"><div class="gl">Фон</div><div class="swatches">${THEMES.map(([k,bg,fg,l])=>`<button class="sw" data-theme-k="${k}" aria-label="${l}" title="${l}" aria-pressed="${S.theme===k}" style="background:${bg};color:${fg}">${k==='system'?'':'Аа'}</button>`).join('')}</div></div>
+      <div class="grp"><div class="gl">Размер текста</div><div class="step"><button data-st="fs" data-d="-1" aria-label="Мельче">А−</button><output id="oFs">${S.fs}</output><button data-st="fs" data-d="1" aria-label="Крупнее">А+</button></div></div>
+      <div class="grp"><div class="gl">Расстояние между строками</div><div class="step"><button data-st="lh" data-d="-0.1" aria-label="Плотнее">−</button><output id="oLh">${S.lh.toFixed(1)}</output><button data-st="lh" data-d="0.1" aria-label="Свободнее">+</button></div></div>
+      <div class="grp"><div class="gl">Шрифт</div><div class="fonts">${Object.entries(FONTS).map(([k,[l,f]])=>`<button data-font="${k}" aria-pressed="${S.font===k}" style='font-family:${f}'>${l}</button>`).join('')}</div></div>
+      <div class="grp"><div class="gl">Поля по краям</div>${seg('margin',[['s','Узкие'],['m','Средние'],['l','Широкие']])}</div>
+      <div class="grp"><div class="gl">Абзацы</div>${seg('para',[['space','С промежутком'],['indent','С отступом']])}</div>
+      <div class="grp"><div class="gl">Выравнивание</div>${seg('align',[['left','По левому краю'],['justify','По ширине']])}</div>
+      <div class="grp"><div class="gl">Как читать</div>${seg('mode',[['pages','Страницами'],['scroll','Лентой']])}</div>
+      <div class="grp">
+        <label class="sw-row">Переносы слов<input type="checkbox" id="cHy" ${S.hyph?'checked':''}></label>
+        <label class="sw-row">Плавное перелистывание<input type="checkbox" id="cAn" ${S.anim?'checked':''}></label>
+        <label class="sw-row">Строка внизу: страница и сколько минут до конца главы<input type="checkbox" id="cFt" ${S.footer?'checked':''}></label>
+        <label class="sw-row">Не гасить экран, пока читаю<input type="checkbox" id="cWk" ${S.wake?'checked':''}></label>
+      </div>
+      <div class="grp"><div class="gl">Приглушить экран</div><input type="range" id="cDim" min="0" max="0.6" step="0.05" value="${S.dim}" aria-label="Приглушить экран"></div>
+      <button class="btn wide" id="cReset">Вернуть как было по умолчанию</button>
+    </div>`;
+    let pending=0;
+    const changed=(layoutToo)=>{saveSettings();applySettings();if(layoutToo){clearTimeout(pending);pending=setTimeout(async()=>{await openChapter(R.ch,pos);},120);}};
+    b.querySelectorAll('[data-theme-k]').forEach(x=>x.onclick=()=>{S.theme=x.dataset.themeK;b.querySelectorAll('[data-theme-k]').forEach(y=>y.setAttribute('aria-pressed',y===x));changed(false);});
+    b.querySelectorAll('[data-st]').forEach(x=>x.onclick=()=>{const k=x.dataset.st,d=+x.dataset.d;
+      if(k==='fs'){S.fs=clamp(S.fs+d,14,34);b.querySelector('#oFs').textContent=S.fs;}else{S.lh=Math.round(clamp(S.lh+d,1.2,2.2)*10)/10;b.querySelector('#oLh').textContent=S.lh.toFixed(1);}changed(true);});
+    b.querySelectorAll('[data-font]').forEach(x=>x.onclick=()=>{S.font=x.dataset.font;b.querySelectorAll('[data-font]').forEach(y=>y.setAttribute('aria-pressed',y===x));changed(true);});
+    b.querySelectorAll('.seg').forEach(sg=>sg.querySelectorAll('button').forEach(x=>x.onclick=()=>{S[sg.dataset.k]=x.dataset.v;sg.querySelectorAll('button').forEach(y=>y.setAttribute('aria-pressed',y===x));changed(true);}));
+    b.querySelector('#cHy').onchange=e=>{S.hyph=e.target.checked;changed(true);};
+    b.querySelector('#cAn').onchange=e=>{S.anim=e.target.checked;changed(false);};
+    b.querySelector('#cFt').onchange=e=>{S.footer=e.target.checked;changed(false);};
+    b.querySelector('#cWk').onchange=e=>{S.wake=e.target.checked;saveSettings();S.wake?wake():releaseWake();};
+    b.querySelector('#cDim').oninput=e=>{S.dim=+e.target.value;changed(false);};
+    b.querySelector('#cReset').onclick=()=>{S=Object.assign({},DEF);saveSettings();applySettings();openChapter(R.ch,pos).then(showSettings);};
+  });
+}
+function snippetAt(ch,i){
+  const d=document.createElement('div');d.innerHTML=R.content.chapters[ch].html;
+  const el=d.querySelector(`[data-i="${i}"]`);const t=el?txt(el):'';return t.length>110?t.slice(0,108)+'…':t;
+}
+function showMarks(tab){
+  openSheet('Закладки и цитаты',b=>{
+    const draw=()=>{
+      b.innerHTML=`<div class="tabs seg"><button data-t="marks" aria-pressed="${tab==='marks'}">Закладки · ${R.meta.bookmarks.length}</button><button data-t="quotes" aria-pressed="${tab==='quotes'}">Цитаты · ${R.meta.quotes.length}</button></div><div id="mList"></div>`;
+      b.querySelectorAll('[data-t]').forEach(x=>x.onclick=()=>{tab=x.dataset.t;draw();});
+      const L=b.querySelector('#mList');
+      if(tab==='marks'){
+        const add=document.createElement('button');add.className='btn primary wide';add.textContent='Добавить закладку на этой странице';add.style.margin='4px 0 8px';
+        add.onclick=()=>{const p=curPos();R.meta.bookmarks.unshift({ch:p.ch,i:p.i,off:p.off,at:Date.now(),text:snippetAt(p.ch,p.i),title:R.content.chapters[p.ch].title});savePos(true);draw();toast('Закладка добавлена');};
+        L.appendChild(add);
+        if(!R.meta.bookmarks.length){const p=document.createElement('p');p.className='muted';p.textContent='Закладок пока нет. Закладка запоминает страницу, к которой хочется вернуться.';L.appendChild(p);}
+        R.meta.bookmarks.forEach((m,k)=>L.appendChild(itemEl(`${esc(m.text||'Закладка')}<small>${esc(m.title||'')} · ${fmtDate(m.at)}</small>`,()=>{closeSheet();hideBars();openChapter(m.ch,m);},()=>{const [x]=R.meta.bookmarks.splice(k,1);savePos(true);draw();toast('Закладка удалена',4000,()=>{R.meta.bookmarks.splice(k,0,x);savePos(true);draw();});})));
+      }else{
+        if(!R.meta.quotes.length){const p=document.createElement('p');p.className='muted';p.innerHTML='Цитат пока нет. Чтобы сохранить цитату, задержите палец на тексте, выделите нужный кусок и нажмите «Сохранить цитату» внизу экрана.';L.appendChild(p);}
+        else{const cp=document.createElement('button');cp.className='btn wide';cp.textContent='Скопировать все цитаты';cp.style.margin='4px 0 8px';
+          cp.onclick=()=>{const t=R.book.title+'\n\n'+R.meta.quotes.slice().reverse().map(q=>`«${q.text}»\n— ${q.title}`).join('\n\n');copyText(t);};L.appendChild(cp);}
+        R.meta.quotes.forEach((q,k)=>L.appendChild(itemEl(`<span class="quote-text">«${esc(q.text)}»</span><small>${esc(q.title||'')} · ${fmtDate(q.at)}</small>`,()=>{closeSheet();hideBars();openChapter(q.ch,{i:q.i,off:0}).then(()=>highlight(q.i));},()=>{const [x]=R.meta.quotes.splice(k,1);savePos(true);draw();toast('Цитата удалена',4000,()=>{R.meta.quotes.splice(k,0,x);savePos(true);draw();});})));
+      }
+    };
+    draw();
+  });
+}
+function itemEl(html,onGo,onDel){const d=document.createElement('div');d.className='item';const g=document.createElement('button');g.className='go';g.innerHTML=html;g.onclick=onGo;const x=document.createElement('button');x.className='x';x.setAttribute('aria-label','Удалить');x.innerHTML='<svg class="i"><use href="#i-x"/></svg>';x.onclick=onDel;d.append(g,x);return d;}
+function fmtDate(t){try{return new Date(t).toLocaleDateString('ru-RU',{day:'numeric',month:'long'});}catch(e){return '';}}
+async function copyText(t){try{await navigator.clipboard.writeText(t);toast('Скопировано');}catch(e){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Скопировано');}catch(_){toast('Не получилось скопировать');}ta.remove();}}
+
+let lastQuery='';
+function showSearch(){
+  openSheet('Поиск по книге',b=>{
+    b.innerHTML=`<form class="search" id="sForm"><input id="sQ" type="search" enterkeyhint="search" placeholder="Слово или фраза" value="${esc(lastQuery)}" autocomplete="off"><button class="btn primary" type="submit">Найти</button></form><div id="sRes" class="res"></div>`;
+    const run=()=>{const q=b.querySelector('#sQ').value.trim();lastQuery=q;const R2=b.querySelector('#sRes');R2.innerHTML='';
+      if(q.length<2){R2.innerHTML='<p class="muted">Введите хотя бы две буквы.</p>';return;}
+      const ql=q.toLowerCase();let n=0;const d=document.createElement('div');
+      for(let ch=0;ch<R.content.chapters.length&&n<150;ch++){const c=R.content.chapters[ch];if(!plain(c.html).toLowerCase().includes(ql))continue;
+        d.innerHTML=c.html;
+        for(const el of d.querySelectorAll('[data-i]')){const t=txt(el);const k=t.toLowerCase().indexOf(ql);if(k<0)continue;
+          const s=Math.max(0,k-50),e=Math.min(t.length,k+q.length+60);
+          const snip=(s>0?'…':'')+esc(t.slice(s,k))+'<mark>'+esc(t.slice(k,k+q.length))+'</mark>'+esc(t.slice(k+q.length,e))+(e<t.length?'…':'');
+          const i=+el.dataset.i;
+          R2.appendChild(itemEl(`${snip}<small>${esc(c.title)}</small>`,()=>{closeSheet();hideBars();openChapter(ch,{i,off:0}).then(()=>highlight(i));},null));
+          if(++n>=150)break;}}
+      R2.querySelectorAll('.x').forEach(x=>x.remove());
+      R2.insertAdjacentHTML('afterbegin',`<p class="muted" style="margin:4px 0 6px">${n?(n>=150?'Найдено больше 150 мест, показаны первые 150':'Найдено: '+n):'Ничего не нашлось'}</p>`);
+    };
+    b.querySelector('#sForm').onsubmit=e=>{e.preventDefault();b.querySelector('#sQ').blur();run();};
+    if(lastQuery)run();else setTimeout(()=>b.querySelector('#sQ').focus(),50);
+  });
+}
+function highlight(i){const el=flow.querySelector(`[data-i="${i}"]`);if(el)el.classList.add('hit');}
+function clearHits(){if(R._hitT)return;flow.querySelectorAll('.hit').forEach(e=>{R._hitT=setTimeout(()=>{e.classList.remove('hit');R._hitT=0;},2500);});}
+function showNote(id){
+  const h=R.content.notes&&R.content.notes[id];
+  if(!h){return;}
+  openSheet('Сноска',b=>{b.innerHTML=`<div class="note">${h}</div>`;});
+}
+function showImage(src){const v=$('#imgview');v.querySelector('img').src=src;v.hidden=false;}
+$('#imgview').addEventListener('click',()=>{$('#imgview').hidden=true;});
+
+/* quotes from selection */
+let selT=0;
+document.addEventListener('selectionchange',()=>{clearTimeout(selT);selT=setTimeout(()=>{
+  const s=getSelection();const ok=!$('#reader').hidden&&s&&!s.isCollapsed&&s.rangeCount&&flow.contains(s.anchorNode)&&s.toString().trim().length>2;
+  $('#qbtn').hidden=!ok;},150);});
+$('#qbtn').addEventListener('click',()=>{
+  const s=getSelection();if(!s||s.isCollapsed)return;
+  const text=s.toString().replace(/\s+/g,' ').trim();
+  let n=s.anchorNode;while(n&&n!==flow&&!(n.dataset&&n.dataset.i!=null))n=n.parentNode;
+  const i=n&&n.dataset&&n.dataset.i!=null?+n.dataset.i:curPos().i;
+  R.meta.quotes.unshift({text,ch:R.ch,i,at:Date.now(),title:R.content.chapters[R.ch].title});
+  savePos(true);s.removeAllRanges();$('#qbtn').hidden=true;toast('Цитата сохранена — она в «Закладках и цитатах»');
+});
+
+/* toast */
+let toastT=0;
+function toast(msg,ms,undo){const t=$('#toast');t.innerHTML='';const sp=document.createElement('span');sp.textContent=msg;t.appendChild(sp);
+  if(undo){const u=document.createElement('button');u.textContent='Вернуть';u.onclick=()=>{undo();t.hidden=true;};t.appendChild(u);}
+  t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,ms||2600);}
+
+/* wake lock */
+async function wake(){if(!S.wake||$('#reader').hidden)return;try{if(navigator.wakeLock&&!R.wl){R.wl=await navigator.wakeLock.request('screen');R.wl.addEventListener('release',()=>{R.wl=null;});}}catch(e){}}
+function releaseWake(){try{R.wl&&R.wl.release();}catch(e){}R.wl=null;}
+
+/* boot */
+$('#file').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];e.target.value='';addFile(f);});
+const pick=()=>$('#file').click();
+$('#addBtn').onclick=pick;$('#addBtn2').onclick=pick;
+const standalone=window.navigator.standalone===true||(window.matchMedia&&matchMedia('(display-mode: standalone)').matches);
+const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+if(window.CHTETS_PWA&&isIOS&&!standalone&&!LS.get('tipHidden',false))$('#tip').hidden=false;
+$('#tipX').onclick=()=>{$('#tip').hidden=true;LS.set('tipHidden',true);};
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applySettings);}catch(e){}
+if(!document.querySelector('meta[name=theme-color]')){const m=document.createElement('meta');m.name='theme-color';document.head.appendChild(m);}
+applySettings();
+(async()=>{await DB.open();await renderLib();
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(!$('#reader').hidden)relayout();});
+  window.__chtets={addFile,R,S,openBook};
+})();
+})();
+</script>
+
+</body>
+</html>
