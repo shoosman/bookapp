@@ -1,4 +1,4 @@
-const V='chtets-v1';
+const V='chtets-v2';
 const CORE=['./','./index.html','./jszip.min.js','./manifest.webmanifest','./apple-touch-icon.png','./icon-192.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
