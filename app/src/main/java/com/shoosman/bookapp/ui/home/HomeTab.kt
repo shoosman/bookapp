@@ -127,7 +127,7 @@ fun HomeTab(
                 item { ContinueCard(current, onOpenBook, onRead, onListen) }
             }
             items(shelves, key = { it.title }) { shelf ->
-                ShelfRow(shelf, onOpenBook, onShelf)
+                ShelfRow(shelf, books, onOpenBook, onShelf)
             }
         }
     }
@@ -197,7 +197,7 @@ private fun ContinueCard(
 }
 
 @Composable
-private fun ShelfRow(shelf: Shelf, onOpenBook: (Long) -> Unit, onShelf: (Int) -> Unit) {
+private fun ShelfRow(shelf: Shelf, allBooks: List<BookEntity>, onOpenBook: (Long) -> Unit, onShelf: (Int) -> Unit) {
     Column(Modifier.padding(top = 12.dp)) {
         Row(
             Modifier
@@ -221,7 +221,7 @@ private fun ShelfRow(shelf: Shelf, onOpenBook: (Long) -> Unit, onShelf: (Int) ->
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(tilesOf(shelf.books), key = { it.first }) { (_, group) ->
+            items(tilesOf(shelf.books, allBooks), key = { it.first }) { (_, group) ->
                 if (group.size == 1) BookTile(group[0]) { onOpenBook(group[0].id) }
                 else SeriesTile(group) { openSeries = group }
             }
@@ -230,17 +230,33 @@ private fun ShelfRow(shelf: Shelf, onOpenBook: (Long) -> Unit, onShelf: (Int) ->
     }
 }
 
-/** Книги одного цикла на полке — одна плитка (на месте первой из них). */
-private fun tilesOf(books: List<BookEntity>): List<Pair<String, List<BookEntity>>> {
-    fun key(b: BookEntity) = SeriesGuess.key(b.series) + "|" + b.author.substringBefore(',').trim().lowercase().split(' ').lastOrNull().orEmpty()
-    val groups = books.filter { it.series.isNotBlank() }.groupBy { key(it) }
+/** Все тома цикла, независимо от полки и наличия скачанного файла. */
+private fun tilesOf(shelfBooks: List<BookEntity>, allBooks: List<BookEntity>): List<Pair<String, List<BookEntity>>> {
+    fun authorKey(b: BookEntity) = b.author.substringBefore(',').trim().lowercase()
+        .replace('ё', 'е').split(' ').lastOrNull().orEmpty()
+    val known = allBooks.filter { it.series.isNotBlank() }
+    fun seriesName(b: BookEntity): String {
+        if (b.series.isNotBlank()) return b.series
+        SeriesGuess.guess(b.title)?.let { return it.series }
+        // Ручная запись «Гильдия злодеев» без номера тома = первый том серии.
+        return known.firstOrNull {
+            SeriesGuess.key(it.series) == SeriesGuess.key(b.title) &&
+                (authorKey(b).isEmpty() || authorKey(it).isEmpty() || authorKey(b) == authorKey(it))
+        }?.series.orEmpty()
+    }
+    fun key(b: BookEntity) = SeriesGuess.key(seriesName(b)) + "|" + authorKey(b)
+    val groups = allBooks.filter { seriesName(it).isNotBlank() }.groupBy(::key)
     val placed = HashSet<String>()
     val out = ArrayList<Pair<String, List<BookEntity>>>()
-    for (b in books) {
-        val g = if (b.series.isNotBlank()) groups[key(b)].orEmpty() else emptyList()
+    for (b in shelfBooks) {
+        val g = if (seriesName(b).isNotBlank()) groups[key(b)].orEmpty() else emptyList()
         if (g.size < 2) { out.add("b${b.id}" to listOf(b)); continue }
         if (placed.add(key(b))) {
-            out.add("s" + key(b) to g.sortedWith(compareBy({ if (it.seriesIndex > 0f) it.seriesIndex else Float.MAX_VALUE }, { it.title })))
+            val series = seriesName(b)
+            out.add("s" + key(b) to g.sortedWith(compareBy<BookEntity>(
+                { if (it.seriesIndex > 0f) it.seriesIndex else if (SeriesGuess.key(it.title) == SeriesGuess.key(series)) 1f else Float.MAX_VALUE },
+                { it.title.lowercase() },
+            )))
         }
     }
     return out
@@ -286,10 +302,12 @@ private fun SeriesTile(books: List<BookEntity>, onClick: () -> Unit) {
 private fun SeriesBooksSheet(books: List<BookEntity>, onDismiss: () -> Unit, onOpen: (Long) -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
-            Text(books.first().series, style = MaterialTheme.typography.titleLarge)
+            Text(books.firstOrNull { it.series.isNotBlank() }?.series ?: books.first().title, style = MaterialTheme.typography.titleLarge)
             Text(books.first().author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
+            val seen = HashSet<String>()
             books.forEach { b ->
+                val duplicate = !seen.add(SeriesGuess.key(b.title) + "|" + b.seriesIndex)
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpen(b.id) }.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -303,7 +321,7 @@ private fun SeriesBooksSheet(books: List<BookEntity>, onDismiss: () -> Unit, onO
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(b.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(BookStatus.label(b.status), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(BookStatus.label(b.status) + if (duplicate) " · Повтор в библиотеке" else "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
