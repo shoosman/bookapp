@@ -217,11 +217,12 @@ private fun ShelfRow(shelf: Shelf, allBooks: List<BookEntity>, onOpenBook: (Long
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Вся полка", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         var openSeries by remember { mutableStateOf<List<BookEntity>?>(null) }
+        val tiles = remember(shelf.books, allBooks) { tilesOf(shelf.books, allBooks) }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(tilesOf(shelf.books, allBooks), key = { it.first }) { (_, group) ->
+            items(tiles, key = { it.first }) { (_, group) ->
                 if (group.size == 1) BookTile(group[0]) { onOpenBook(group[0].id) }
                 else SeriesTile(group) { openSeries = group }
             }
@@ -232,31 +233,59 @@ private fun ShelfRow(shelf: Shelf, allBooks: List<BookEntity>, onOpenBook: (Long
 
 /** Все тома цикла, независимо от полки и наличия скачанного файла. */
 private fun tilesOf(shelfBooks: List<BookEntity>, allBooks: List<BookEntity>): List<Pair<String, List<BookEntity>>> {
-    fun authorKey(b: BookEntity) = b.author.substringBefore(',').trim().lowercase()
-        .replace('ё', 'е').split(' ').lastOrNull().orEmpty()
-    val known = allBooks.filter { it.series.isNotBlank() }
-    fun seriesName(b: BookEntity): String {
-        if (b.series.isNotBlank()) return b.series
-        SeriesGuess.guess(b.title)?.let { return it.series }
-        // Ручная запись «Гильдия злодеев» без номера тома = первый том серии.
-        return known.firstOrNull {
-            SeriesGuess.key(it.series) == SeriesGuess.key(b.title) &&
-                (authorKey(b).isEmpty() || authorKey(it).isEmpty() || authorKey(b) == authorKey(it))
-        }?.series.orEmpty()
+    fun authorKey(book: BookEntity): String = book.author.substringBefore(',').trim()
+        .lowercase().replace('ё', 'е').split(' ').lastOrNull().orEmpty()
+
+    // Строим индекс один раз вместо поиска по всем книгам для каждого тома.
+    val knownSeries = HashMap<String, String>()
+    for (book in allBooks) {
+        if (book.series.isNotBlank()) {
+            knownSeries[SeriesGuess.key(book.series) + "|" + authorKey(book)] = book.series
+        }
     }
-    fun key(b: BookEntity) = SeriesGuess.key(seriesName(b)) + "|" + authorKey(b)
-    val groups = allBooks.filter { seriesName(it).isNotBlank() }.groupBy(::key)
+    fun seriesOf(book: BookEntity): String {
+        if (book.series.isNotBlank()) return book.series
+        SeriesGuess.guess(book.title)?.let { return it.series }
+        val titleKey = SeriesGuess.key(book.title)
+        val author = authorKey(book)
+        return knownSeries["$titleKey|$author"]
+            ?: if (author.isBlank()) knownSeries.entries.firstOrNull {
+                it.key.startsWith("$titleKey|")
+            }?.value.orEmpty() else ""
+    }
+    val keys = HashMap<Long, String>()
+    val seriesNames = HashMap<Long, String>()
+    val groups = HashMap<String, MutableList<BookEntity>>()
+    for (book in allBooks) {
+        val name = seriesOf(book)
+        if (name.isBlank()) continue
+        val key = SeriesGuess.key(name) + "|" + authorKey(book)
+        keys[book.id] = key
+        seriesNames[book.id] = name
+        groups.getOrPut(key) { ArrayList() }.add(book)
+    }
     val placed = HashSet<String>()
     val out = ArrayList<Pair<String, List<BookEntity>>>()
-    for (b in shelfBooks) {
-        val g = if (seriesName(b).isNotBlank()) groups[key(b)].orEmpty() else emptyList()
-        if (g.size < 2) { out.add("b${b.id}" to listOf(b)); continue }
-        if (placed.add(key(b))) {
-            val series = seriesName(b)
-            out.add("s" + key(b) to g.sortedWith(compareBy<BookEntity>(
-                { if (it.seriesIndex > 0f) it.seriesIndex else if (SeriesGuess.key(it.title) == SeriesGuess.key(series)) 1f else Float.MAX_VALUE },
+    for (book in shelfBooks) {
+        val key = keys[book.id]
+        val group = if (key != null) groups[key].orEmpty() else emptyList()
+        if (group.size < 2) {
+            out.add("b${book.id}" to listOf(book))
+            continue
+        }
+        if (placed.add(key)) {
+            val series = seriesNames[book.id].orEmpty()
+            val sorted = group.sortedWith(compareBy<BookEntity>(
+                {
+                    when {
+                        it.seriesIndex > 0f -> it.seriesIndex
+                        SeriesGuess.key(it.title) == SeriesGuess.key(series) -> 1f
+                        else -> Float.MAX_VALUE
+                    }
+                },
                 { it.title.lowercase() },
-            )))
+            ))
+            out.add("s$key" to sorted)
         }
     }
     return out
