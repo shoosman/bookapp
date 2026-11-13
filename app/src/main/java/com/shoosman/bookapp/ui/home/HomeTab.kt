@@ -109,15 +109,21 @@ fun HomeTab(
 
         val reading = books.filter { it.status == BookStatus.READING }
         val current = reading.filter { it.lastOpenedAt > 0 }.maxByOrNull { it.lastOpenedAt } ?: reading.firstOrNull()
-        val shelves = listOf(
-            Shelf("Читаю", BookStatus.READING, reading.filter { it.id != current?.id }),
-            Shelf("Хочу прочитать", BookStatus.WANT, books.filter { it.status == BookStatus.WANT }),
-            Shelf(
-                "Недавно добавленные", SHELF_RECENT,
-                if (books.size > 4) books.sortedByDescending { it.addedAt }.take(12) else emptyList(),
-            ),
-            Shelf("Прочитано", BookStatus.FINISHED, books.filter { it.status == BookStatus.FINISHED }.sortedByDescending { it.finishedAt }),
-        ).filter { it.books.isNotEmpty() }
+        // Главная показывает превью полок, а не пытается отрисовать всю библиотеку.
+        // Полный список и группировка циклов доступны во вкладке «Библиотека».
+        val shelves = remember(books) {
+            listOf(
+                Shelf("Читаю", BookStatus.READING,
+                    books.filter { it.status == BookStatus.READING && it.id != current?.id }.take(12)),
+                Shelf("Хочу прочитать", BookStatus.WANT,
+                    books.filter { it.status == BookStatus.WANT }.take(12)),
+                Shelf("Недавно добавленные", SHELF_RECENT,
+                    if (books.size > 4) books.sortedByDescending { it.addedAt }.take(12) else emptyList()),
+                Shelf("Прочитано", BookStatus.FINISHED,
+                    books.filter { it.status == BookStatus.FINISHED }
+                        .sortedByDescending { it.finishedAt }.take(12)),
+            ).filter { it.books.isNotEmpty() }
+        }
 
         LazyColumn(
             modifier = Modifier.padding(padding),
@@ -216,18 +222,14 @@ private fun ShelfRow(shelf: Shelf, allBooks: List<BookEntity>, onOpenBook: (Long
             Spacer(Modifier.weight(1f))
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Вся полка", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        var openSeries by remember { mutableStateOf<List<BookEntity>?>(null) }
-        val tiles = remember(shelf.books, allBooks) { tilesOf(shelf.books, allBooks) }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(tiles, key = { it.first }) { (_, group) ->
-                if (group.size == 1) BookTile(group[0]) { onOpenBook(group[0].id) }
-                else SeriesTile(group) { openSeries = group }
+            items(shelf.books, key = { it.id }) { book ->
+                BookTile(book) { onOpenBook(book.id) }
             }
         }
-        openSeries?.let { g -> SeriesBooksSheet(g, onDismiss = { openSeries = null }) { id -> openSeries = null; onOpenBook(id) } }
     }
 }
 
