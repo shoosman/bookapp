@@ -691,27 +691,75 @@ private fun BookSheet(
                 ) { Text(if (adding) "Добавляю…" else "Хочу прочитать") }
             }
 
-            // Скачивание доступно, если OPDS возвращает подходящую ссылку на файл.
-            val file = if (allowDownload) {
-                e.downloads.firstOrNull { it.first.contains("fb2") } ?: e.downloads.firstOrNull { it.first.contains("epub") }
-                    ?: e.downloads.firstOrNull { it.first.contains("audio") || it.first.contains("zip") }
-            } else null
-            if (file != null && existing == null) {
-                var dl by remember { mutableStateOf<String?>(null) }
+            // Можно получить текст и аудио из разных источников и объединить в одну запись.
+            val textFile = e.downloads.firstOrNull {
+                val mime = it.first.lowercase()
+                val url = it.second.substringBefore('?').lowercase()
+                mime.contains("fb2") || mime.contains("epub") || mime.startsWith("text/") ||
+                    mime.contains("wordprocessingml") || url.endsWith(".fb2") ||
+                    url.endsWith(".epub") || url.endsWith(".txt") || url.endsWith(".fb2.zip")
+            }
+            val audioFile = e.downloads.firstOrNull {
+                val mime = it.first.lowercase()
+                val url = it.second.substringBefore('?').lowercase()
+                mime.startsWith("audio/") || url.endsWith(".mp3") ||
+                    url.endsWith(".m4b") || url.endsWith(".m4a") ||
+                    url.endsWith(".ogg") || url.endsWith(".opus") ||
+                    url.endsWith(".flac")
+            }
+            val alternative = e.downloads.firstOrNull()
+            var dl by remember(e.id, e.title) { mutableStateOf<String?>(null) }
+            fun downloadFiles(files: List<Pair<String, String>>) {
+                if (dl != null || files.isEmpty()) return
+                dl = "Скачиваю…"
+                repo.appScope.launch {
+                    val outcome = runCatching {
+                        var bookId: Long? = existing?.id
+                        for ((index, file) in files.withIndex()) {
+                            dl = "Скачиваю ${index + 1} из ${files.size}…"
+                            val downloaded = com.shoosman.bookapp.data.Downloader.download(
+                                App.instance, file.second, mime = file.first,
+                            )
+                            val result = repo.importDownloaded(
+                                downloaded.file, downloaded.name, downloaded.mime, bookId,
+                            ) {}
+                            bookId = result.bookId
+                        }
+                    }
+                    dl = outcome.fold({ "Добавлено в библиотеку" }, { ErrorText.ru(it, "Не удалось скачать") })
+                }
+            }
+            if (textFile != null && audioFile != null) {
+                Button(
+                    enabled = dl == null,
+                    onClick = { downloadFiles(listOf(textFile, audioFile)) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text(dl ?: "Скачать текст и аудио") }
+            }
+            if (textFile != null) {
                 OutlinedButton(
                     enabled = dl == null,
-                    onClick = {
-                        dl = "Скачиваю…"
-                        repo.appScope.launch {
-                            val r = runCatching {
-                                val d = com.shoosman.bookapp.data.Downloader.download(App.instance, file.second, mime = file.first)
-                                repo.importDownloaded(d.file, d.name, d.mime, null) {}
-                            }
-                            dl = r.fold({ "Книга в библиотеке" }, { ErrorText.ru(it, "Не удалось скачать") })
-                        }
-                    },
+                    onClick = { downloadFiles(listOf(textFile)) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) { Text(dl ?: "Скачать в Чтец") }
+                ) { Text("Скачать текст") }
+            }
+            if (audioFile != null) {
+                OutlinedButton(
+                    enabled = dl == null,
+                    onClick = { downloadFiles(listOf(audioFile)) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text("Скачать аудио") }
+            }
+            if (textFile == null && audioFile == null && alternative != null) {
+                OutlinedButton(
+                    enabled = dl == null,
+                    onClick = { downloadFiles(listOf(alternative)) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text("Скачать доступный файл") }
+            }
+            if (dl != null) {
+                Text(dl!!, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Text("Где купить", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
