@@ -1,13 +1,10 @@
 package com.shoosman.bookapp.net
 
 import com.shoosman.bookapp.CrashLog
-import okhttp3.Cache
 import okhttp3.Dns
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
-import com.shoosman.bookapp.App
-import java.io.File
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
@@ -50,17 +47,11 @@ object Http {
         }
     }
 
-    // Дисковый HTTP-кеш: OPDS-страницы сохраняются между перезапусками приложения.
-    private val responseCache by lazy {
-        Cache(File(App.instance.cacheDir, "http-responses"), 32L * 1024 * 1024)
-    }
-
-    val client: OkHttpClient by lazy { OkHttpClient.Builder()
-        .cache(responseCache)
+    val client: OkHttpClient = OkHttpClient.Builder()
         .dns(FallbackDns)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
-        .build() }
+        .build()
 }
