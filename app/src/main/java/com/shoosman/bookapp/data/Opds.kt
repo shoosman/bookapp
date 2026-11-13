@@ -135,7 +135,10 @@ object Opds {
             .header("User-Agent", "Chtets/1.0 (OPDS)")
             .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.5")
             .build()
-        return Http.client.newCall(req).execute().use { r ->
+        // Не блокируем выдачу остальных каталогов из-за одного зависшего сервера.
+        val call = Http.client.newCall(req)
+        call.timeout().timeout(18, TimeUnit.SECONDS)
+        return call.execute().use { r ->
             if (!r.isSuccessful) error("Каталог ответил ${r.code}. Если сайт недоступен, укажите другое зеркало.")
             r.body?.string().orEmpty()
         }
