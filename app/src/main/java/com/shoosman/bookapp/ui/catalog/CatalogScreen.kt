@@ -93,8 +93,7 @@ import okhttp3.Request
 import java.net.URLEncoder
 
 /**
- * Каталог (Флибуста по OPDS): разделы, жанры, новинки, поиск. Только описание книг —
- * дальше «Хочу прочитать» или «Где купить».
+ * Каталог OPDS: разделы, жанры, новинки, поиск и скачивание доступных файлов.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -301,7 +300,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     selected?.let { e ->
         BookSheet(
             e,
-            allowDownload = catalog?.catalogOnly == false,
+            allowDownload = true,
             onDismiss = { selected = null },
             onRelated = { url -> selected = null; go(url) },
             onOpenBrowser = onOpenBrowser,
@@ -380,7 +379,7 @@ private fun CatalogList(catalogs: List<OpdsCatalog>, onOpen: (OpdsCatalog) -> Un
                 Column(Modifier.weight(1f)) {
                     Text(c.name, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        c.host + if (c.catalogOnly) " · только поиск и описание" else "",
+                        c.host,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -565,7 +564,7 @@ private fun BookSheet(
                 ) { Text(if (adding) "Добавляю…" else "Хочу прочитать") }
             }
 
-            // Скачивание — только из каталогов, где это законно (Gutenberg, свой Calibre и т. п.)
+            // Скачивание доступно, если OPDS возвращает подходящую ссылку на файл.
             val file = if (allowDownload) {
                 e.downloads.firstOrNull { it.first.contains("fb2") } ?: e.downloads.firstOrNull { it.first.contains("epub") }
                     ?: e.downloads.firstOrNull { it.first.contains("audio") || it.first.contains("zip") }
