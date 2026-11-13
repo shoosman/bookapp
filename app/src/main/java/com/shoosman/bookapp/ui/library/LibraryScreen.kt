@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,6 +47,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.shadow
+import com.shoosman.bookapp.App
+import kotlinx.coroutines.launch
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.SeriesGuess
@@ -138,6 +143,9 @@ fun LibraryTab(
     var grouped by rememberSaveable { mutableStateOf(true) }
     var genre by rememberSaveable { mutableStateOf("") }
     var downloadedOnly by rememberSaveable { mutableStateOf(false) }
+    var confirmCleanup by remember { mutableStateOf(false) }
+    var cleaning by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var genreMenu by remember { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
 
@@ -178,6 +186,13 @@ fun LibraryTab(
                                 )
                             }
                             DropdownMenuItem(
+                                text = { Text("Освободить место: прочитанные") },
+                                enabled = !cleaning && books.orEmpty().any {
+                                    it.status == BookStatus.FINISHED && (it.hasText || it.hasAudio)
+                                },
+                                onClick = { sortMenu = false; confirmCleanup = true },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Циклы вместе") },
                                 leadingIcon = { Checkbox(checked = grouped, onCheckedChange = null) },
                                 onClick = { grouped = !grouped; sortMenu = false },
@@ -198,7 +213,7 @@ fun LibraryTab(
     ) { padding ->
         val all = books ?: return@Scaffold
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (importer.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (importer.busy || cleaning) LinearProgressIndicator(Modifier.fillMaxWidth())
 
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
@@ -303,6 +318,33 @@ fun LibraryTab(
             }
         }
     }
+    if (confirmCleanup) {
+        val removable = books.orEmpty().filter { it.status == BookStatus.FINISHED && (it.hasText || it.hasAudio) }
+        AlertDialog(
+            onDismissRequest = { confirmCleanup = false },
+            title = { Text("Удалить скачанные файлы прочитанных книг?") },
+            text = { Text("Будут удалены текст и аудио у ${removable.size} прочитанных книг. Карточки, оценки, заметки и полка «Прочитано» сохранятся. Восстановить файлы можно только повторной загрузкой.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCleanup = false
+                    cleaning = true
+                    scope.launch {
+                        try {
+                            val app = App.instance
+                            removable.forEach { book ->
+                                app.player.forget(book.id)
+                                app.repo.deleteFiles(book.id)
+                            }
+                        } finally {
+                            cleaning = false
+                        }
+                    }
+                }) { Text("Удалить файлы") }
+            },
+            dismissButton = { TextButton(onClick = { confirmCleanup = false }) { Text("Отмена") } },
+        )
+    }
+
 }
 
 @Composable
