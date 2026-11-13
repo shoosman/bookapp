@@ -81,6 +81,13 @@ object Opds {
         return u
     }
 
+    // Ограниченный кеш страниц OPDS: повторные переходы и поиск не требуют загрузки XML.
+    private data class CachedFeed(val feed: OpdsFeed, val savedAt: Long)
+    private val feedCache = object : LinkedHashMap<String, CachedFeed>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedFeed>?): Boolean = size > 64
+    }
+    private const val CACHE_TTL_MS = 10 * 60 * 1000L
+
     private val searchTemplates = HashMap<String, String?>()
 
     /** Шаблон поиска каталога ({searchTerms}); null — каталог поиск не поддерживает. */
@@ -123,12 +130,20 @@ object Opds {
         }
     }
 
-    suspend fun load(url: String): OpdsFeed = withContext(Dispatchers.IO) {
+    suspend fun load(url: String, forceRefresh: Boolean = false): OpdsFeed = withContext(Dispatchers.IO) {
+        if (!forceRefresh) {
+            val cached = synchronized(feedCache) { feedCache[url] }
+            if (cached != null && System.currentTimeMillis() - cached.savedAt < CACHE_TTL_MS) {
+                return@withContext cached.feed
+            }
+        }
         val xml = fetch(url)
         if (!xml.trimStart().startsWith("<?xml") && !xml.contains("<feed")) {
             error("По этому адресу нет каталога OPDS. Проверьте адрес зеркала.")
         }
-        parse(xml, url)
+        val parsed = parse(xml, url)
+        synchronized(feedCache) { feedCache[url] = CachedFeed(parsed, System.currentTimeMillis()) }
+        parsed
     }
 
     fun parse(xml: String, base: String): OpdsFeed {
