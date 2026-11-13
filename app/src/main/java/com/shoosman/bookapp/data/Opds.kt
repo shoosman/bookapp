@@ -5,8 +5,6 @@ import com.shoosman.bookapp.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
-import okhttp3.CacheControl
-import java.util.concurrent.TimeUnit
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
@@ -83,13 +81,6 @@ object Opds {
         return u
     }
 
-    // Ограниченный кеш страниц OPDS: повторные переходы и поиск не требуют загрузки XML.
-    private data class CachedFeed(val feed: OpdsFeed, val savedAt: Long)
-    private val feedCache = object : LinkedHashMap<String, CachedFeed>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedFeed>?): Boolean = size > 64
-    }
-    private const val CACHE_TTL_MS = 10 * 60 * 1000L
-
     private val searchTemplates = HashMap<String, String?>()
     private val noSearchTemplates = HashSet<String>()
 
@@ -127,41 +118,23 @@ object Opds {
             .replace(Regex("""\{[^}]+\?\}"""), "")
     }
 
-    private fun fetch(url: String, forceRefresh: Boolean = false): String {
-        val cachePolicy = if (forceRefresh) CacheControl.FORCE_NETWORK
-            else CacheControl.Builder().maxStale(24, TimeUnit.HOURS).build()
+    private fun fetch(url: String): String {
         val req = Request.Builder().url(url)
-            .cacheControl(cachePolicy)
             .header("User-Agent", "Chtets/1.0 (OPDS)")
             .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.5")
             .build()
-        // Не блокируем выдачу остальных каталогов из-за одного зависшего сервера.
-        val call = Http.client.newCall(req)
-        call.timeout().timeout(18, TimeUnit.SECONDS)
-        return call.execute().use { r ->
+        return Http.client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) error("Каталог ответил ${r.code}. Если сайт недоступен, укажите другое зеркало.")
             r.body?.string().orEmpty()
         }
     }
 
     suspend fun load(url: String, forceRefresh: Boolean = false): OpdsFeed = withContext(Dispatchers.IO) {
-        if (!forceRefresh) {
-            val cached = synchronized(feedCache) { feedCache[url] }
-            if (cached != null && System.currentTimeMillis() - cached.savedAt < CACHE_TTL_MS) {
-                return@withContext cached.feed
-            }
-        }
-        val xml = try { fetch(url, forceRefresh) } catch (e: Exception) {
-            val stale = synchronized(feedCache) { feedCache[url] }
-            if (stale != null && !forceRefresh) return@withContext stale.feed
-            throw e
-        }
+        val xml = fetch(url)
         if (!xml.trimStart().startsWith("<?xml") && !xml.contains("<feed")) {
             error("По этому адресу нет каталога OPDS. Проверьте адрес зеркала.")
         }
-        val parsed = parse(xml, url)
-        synchronized(feedCache) { feedCache[url] = CachedFeed(parsed, System.currentTimeMillis()) }
-        parsed
+        parse(xml, url)
     }
 
     fun parse(xml: String, base: String): OpdsFeed {
