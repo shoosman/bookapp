@@ -236,12 +236,12 @@ object Opds {
                     listOf("application/zip" to zip) else emptyList(),
             )
         }
-        val limit = Regex("""[?&]limit=(\\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 50
-        val offset = Regex("""[?&]offset=(\\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val limit = Regex("""[?&]limit=(\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 50
+        val offset = Regex("""[?&]offset=(\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         val nextOffset = offset + limit
         val next = if (books.length() >= limit) {
-            if (url.contains(Regex("""[?&]offset=\\d+""")))
-                url.replace(Regex("""([?&])offset=\\d+""")) { m -> "${m.groupValues[1]}offset=$nextOffset" }
+            if (url.contains(Regex("""[?&]offset=\d+""")))
+                url.replace(Regex("""([?&])offset=\d+""")) { m -> "${m.groupValues[1]}offset=$nextOffset" }
             else url + "&offset=$nextOffset"
         } else null
         return OpdsFeed("LibriVox · аудиокниги", entries, next)
