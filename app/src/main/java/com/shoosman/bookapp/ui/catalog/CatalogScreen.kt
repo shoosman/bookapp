@@ -82,6 +82,8 @@ import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
 import com.shoosman.bookapp.data.BookInfo
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.hasText
+import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.CoverFinder
 import com.shoosman.bookapp.data.Opds
 import com.shoosman.bookapp.data.OpdsCatalog
@@ -109,6 +111,12 @@ import java.net.URLEncoder
 fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val localBooks by App.instance.repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
+    fun downloaded(entry: OpdsEntry): Boolean = localBooks.any { book ->
+        (book.hasText || book.hasAudio) &&
+            CoverFinder.norm(book.title) == CoverFinder.norm(entry.title) &&
+            entry.authors.any { author -> CoverFinder.norm(book.author).contains(CoverFinder.norm(author).split(' ').lastOrNull().orEmpty()) }
+    }
     var catalogs by remember { mutableStateOf(Opds.catalogs(ctx)) }
     var catalogUrl by rememberSaveable { mutableStateOf(if (Opds.catalogs(ctx).size == 1) Opds.catalogs(ctx)[0].url else "") }
     val catalog = catalogs.firstOrNull { it.url == catalogUrl }
@@ -341,7 +349,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     }
                     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                         items(globalResults, key = { it.id + "|" + it.title }) { book ->
-                            BookRow(book) { selected = book }
+                            BookRow(book, downloaded(book)) { selected = book }
                             HorizontalDivider()
                         }
                     }
@@ -390,7 +398,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     } else {
                         LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
                             items(all, key = { it.id + "|" + it.navUrl + "|" + it.title }) { e ->
-                                if (e.isBook) BookRow(e) { selected = e } else NavRow(e) { e.navUrl?.let { go(it) } }
+                                if (e.isBook) BookRow(e, downloaded(e)) { selected = e } else NavRow(e) { e.navUrl?.let { go(it) } }
                                 HorizontalDivider()
                             }
                             next?.let { url ->
@@ -567,12 +575,14 @@ private fun CoverThumb(url: String?, modifier: Modifier) {
 }
 
 @Composable
-private fun BookRow(e: OpdsEntry, onClick: () -> Unit) {
+private fun BookRow(e: OpdsEntry, isDownloaded: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
         CoverThumb(e.coverUrl, Modifier.size(54.dp, 78.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(e.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (isDownloaded) Text("Скачано", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary)
             if (e.authors.isNotEmpty()) {
                 Text(
                     e.authors.joinToString(", "),
