@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.data.BookSearch
 import com.shoosman.bookapp.data.BookInfo
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.hasText
@@ -136,6 +137,8 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var byAuthor by rememberSaveable { mutableStateOf(false) }
+    var localSearchResults by remember { mutableStateOf<List<OpdsEntry>?>(null) }
+    var localSearchBusy by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var editDialog by remember { mutableStateOf<OpdsCatalog?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -167,9 +170,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                 catalogs.map { c ->
                     launch {
                         try {
-                            val search = Opds.searchTemplate(c)
-                            val results = if (search == null) emptyList() else
-                                Opds.load(Opds.searchUrl(search, q)).entries.filter { it.isBook }
+                            val results = Opds.searchBooks(c, q)
                             results.forEach { book ->
                                 val key = CoverFinder.norm(book.title) + "|" +
                                     CoverFinder.norm(book.authors.firstOrNull().orEmpty())
@@ -189,6 +190,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                                     title.startsWith(normalizedQuery) -> 80
                                     title.contains(normalizedQuery) -> 60
                                     author.contains(normalizedQuery) -> 40
+                                    BookSearch.matches(q, book.authors.joinToString(" ")) -> 35
                                     else -> 0
                                 }
                             }
@@ -210,6 +212,8 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
         stack.clear()
         if (c != null) stack.add(c.url)
         searching = false
+        query = ""
+        localSearchResults = null
     }
 
     val current = stack.lastOrNull()
@@ -274,13 +278,26 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     if (searching && catalog != null) {
                         TextField(
                             value = query,
-                            onValueChange = { query = it },
+                            onValueChange = { query = it; localSearchResults = null },
                             placeholder = { Text(if (byAuthor) "Автор" else "Название или автор") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = {
-                                val t = template
-                                if (query.isNotBlank() && t != null) go(Opds.searchUrl(t, query, byAuthor))
+                                if (query.isNotBlank()) {
+                                    if (byAuthor && catalog.isFlibustaLike && template != null) {
+                                        localSearchResults = null
+                                        go(Opds.searchUrl(template!!, query, authors = true))
+                                    } else {
+                                        scope.launch {
+                                            localSearchBusy = true
+                                            try {
+                                                localSearchResults = Opds.searchBooks(catalog, query)
+                                            } finally {
+                                                localSearchBusy = false
+                                            }
+                                        }
+                                    }
+                                }
                             }),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
@@ -302,7 +319,15 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                 actions = {
                     if (catalog != null) {
                         if (template != null) {
-                            if (searching) IconButton(onClick = { searching = false }) { Icon(Icons.Filled.Close, "Закрыть поиск") }
+                            if (searching) IconButton(onClick = {
+                                if (query.isNotEmpty()) {
+                                    query = ""
+                                    localSearchResults = null
+                                } else {
+                                    searching = false
+                                    localSearchResults = null
+                                }
+                            }) { Icon(Icons.Filled.Close, if (query.isNotEmpty()) "Очистить поиск" else "Закрыть поиск") }
                             else IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Поиск") }
                         }
                         Box {
@@ -333,6 +358,11 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     label = { Text("Искать во всех каталогах") },
                     placeholder = { Text("Название книги или автор") },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    trailingIcon = {
+                        if (globalQuery.isNotEmpty()) IconButton(onClick = { globalQuery = "" }) {
+                            Icon(Icons.Filled.Close, "Очистить поиск")
+                        }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 )
@@ -349,6 +379,14 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                         AssistChip(
                             onClick = { onOpenBrowser("https://www.litres.ru/search/?q=$encoded") },
                             label = { Text("Литрес") },
+                        )
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://www.litres.ru/audiobooks/") },
+                            label = { Text("Литрес · аудио") },
+                        )
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://author.today/what-to-listen-to") },
+                            label = { Text("Author.Today · аудио") },
                         )
                         AssistChip(
                             onClick = { onOpenBrowser("https://litmarket.ru/") },
@@ -394,6 +432,24 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
             }
             val f = feed
             when {
+                localSearchBusy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                localSearchResults != null -> {
+                    val results = localSearchResults.orEmpty()
+                    if (results.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Совпадений нет", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                            items(results, key = { it.id + "|" + it.title }) { e ->
+                                BookRow(e, downloaded(e)) { selected = e }
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
                 loading && f == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 error != null -> Column(
                     Modifier.fillMaxSize().padding(32.dp),
@@ -566,6 +622,38 @@ private fun CatalogList(
             "ЛитМаркет" to "https://litmarket.ru/",
             "Литнет" to "https://litnet.com/",
             "Литрес" to "https://www.litres.ru/",
+        )) { (name, url) ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpenWebsite(url) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                    Text("Открыть сайт", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+            }
+            HorizontalDivider()
+        }
+        item {
+            Text(
+                "Каталоги аудиокниг",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp),
+            )
+            Text(
+                "LibriVox — аудиозаписи с бесплатной загрузкой ZIP/MP3. " +
+                    "Современные книги на Литрес и Author.Today открываются во встроенном браузере.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        items(listOf(
+            "Литрес · аудиокниги" to "https://www.litres.ru/audiobooks/",
+            "Author.Today · аудио" to "https://author.today/what-to-listen-to",
         )) { (name, url) ->
             Row(
                 Modifier.fillMaxWidth().clickable { onOpenWebsite(url) }
@@ -770,7 +858,8 @@ private fun BookSheet(
             val audioFile = e.downloads.firstOrNull {
                 val mime = it.first.lowercase()
                 val url = it.second.substringBefore('?').lowercase()
-                mime.startsWith("audio/") || url.endsWith(".mp3") ||
+                mime.startsWith("audio/") || (e.id.startsWith("librivox:") && url.endsWith(".zip")) ||
+                    url.endsWith(".mp3") ||
                     url.endsWith(".m4b") || url.endsWith(".m4a") ||
                     url.endsWith(".ogg") || url.endsWith(".opus") ||
                     url.endsWith(".flac")
