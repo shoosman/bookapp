@@ -176,6 +176,10 @@ class LibrarySync(ctx: Context, private val repo: BookRepository) {
                 prefs.edit().putLong(KEY_LAST, now).apply()
                 CrashLog.note("Синхронизация: готово, изменений $count")
                 _ui.update { it.copy(running = false, lastSync = now) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Плановая отмена отложенной задачи не является ошибкой синхронизации.
+                _ui.update { it.copy(running = false) }
+                throw e
             } catch (e: Exception) {
                 CrashLog.note("Синхронизация: ошибка ${e.javaClass.simpleName} ${e.message}")
                 val msg = when {
