@@ -86,20 +86,38 @@ private class SeriesGroup(override val key: String, val title: String, val autho
 private fun surnameKey(author: String): String =
     author.substringBefore(',').substringBefore(" и др").trim().lowercase().replace('ё', 'е').split(' ', '.').lastOrNull { it.isNotBlank() }.orEmpty()
 
-/** Книги одного цикла (и одного автора) собираются в группу на месте первой из них. */
+/** Объединяем тома цикла, включая вручную добавленную первую книгу без заполненного поля серии. */
 private fun groupSeries(list: List<BookEntity>): List<Entry> {
-    val byKey = list.filter { it.series.isNotBlank() }
-        .groupBy { SeriesGuess.key(it.series) + "|" + surnameKey(it.author) }
+    // Если название совпадает с названием известного цикла того же автора, считаем
+    // такую запись первым томом, даже если у неё нет локального файла.
+    val known = list.filter { it.series.isNotBlank() }
+    fun seriesOf(book: BookEntity): String {
+        if (book.series.isNotBlank()) return book.series
+        val guessed = SeriesGuess.guess(book.title)
+        if (guessed != null) return guessed.series
+        return known.firstOrNull { other ->
+            SeriesGuess.key(other.series) == SeriesGuess.key(book.title) &&
+                (surnameKey(book.author).isBlank() || surnameKey(other.author).isBlank() ||
+                    surnameKey(book.author) == surnameKey(other.author))
+        }?.series.orEmpty()
+    }
+    fun groupKey(book: BookEntity): String =
+        SeriesGuess.key(seriesOf(book)) + "|" + surnameKey(book.author)
+    val byKey = list.filter { seriesOf(it).isNotBlank() }.groupBy(::groupKey)
     val placed = HashSet<String>()
     val out = ArrayList<Entry>()
-    for (b in list) {
-        if (b.series.isBlank()) { out.add(Single(b)); continue }
-        val k = SeriesGuess.key(b.series) + "|" + surnameKey(b.author)
-        val members = byKey[k].orEmpty()
-        if (members.size < 2) { out.add(Single(b)); continue }
-        if (!placed.add(k)) continue
-        val sorted = members.sortedWith(compareBy<BookEntity>({ if (it.seriesIndex > 0f) it.seriesIndex else Float.MAX_VALUE }, { it.title.lowercase() }))
-        out.add(SeriesGroup("s$k", b.series, b.author, sorted))
+    for (book in list) {
+        val series = seriesOf(book)
+        if (series.isBlank()) { out.add(Single(book)); continue }
+        val key = groupKey(book)
+        val members = byKey[key].orEmpty()
+        if (members.size < 2) { out.add(Single(book)); continue }
+        if (!placed.add(key)) continue
+        val sorted = members.sortedWith(compareBy<BookEntity>(
+            { if (it.seriesIndex > 0f) it.seriesIndex else if (it.series.isBlank() && SeriesGuess.key(it.title) == SeriesGuess.key(series)) 1f else Float.MAX_VALUE },
+            { it.title.lowercase() },
+        ))
+        out.add(SeriesGroup("s$key", series, book.author, sorted))
     }
     return out
 }
