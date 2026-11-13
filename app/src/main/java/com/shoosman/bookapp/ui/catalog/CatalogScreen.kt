@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,6 +90,7 @@ import com.shoosman.bookapp.data.SeriesGuess
 import com.shoosman.bookapp.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.net.URLEncoder
@@ -111,6 +114,8 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     ) { mutableStateListOf<String>().apply { if (catalogUrl.isNotEmpty()) add(catalogUrl) } }
     var feed by remember { mutableStateOf<OpdsFeed?>(null) }
     val extra = remember { mutableStateListOf<OpdsEntry>() }
+    val listState = rememberLazyListState()
+    var loadingMore by remember { mutableStateOf(false) }
     var next by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -135,10 +140,11 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     LaunchedEffect(current, reload) {
         feed = null
         extra.clear()
+        next = null
         error = null
         if (current == null) return@LaunchedEffect
         loading = true
-        runCatching { Opds.load(current) }
+        runCatching { Opds.load(current, forceRefresh = reload > 0) }
             .onSuccess { feed = it; next = it.nextUrl }
             .onFailure {
                 CrashLog.note("Каталог: ${it.javaClass.simpleName} ${it.message}")
@@ -149,6 +155,26 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     LaunchedEffect(catalogUrl) {
         template = catalog?.let { runCatching { Opds.searchTemplate(it) }.getOrNull() }
     }
+    // Подгружаем следующую страницу до достижения конца списка.
+    LaunchedEffect(current, next, feed, extra.size) {
+        val url = next ?: return@LaunchedEffect
+        val count = (feed?.entries?.size ?: 0) + extra.size
+        if (count == 0 || loadingMore) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .first { it >= count - 5 && it >= 0 }
+        if (loadingMore || next != url) return@LaunchedEffect
+        loadingMore = true
+        try {
+            val page = Opds.load(url)
+            extra.addAll(page.entries)
+            next = page.nextUrl?.takeUnless { it == url }
+        } catch (e: Exception) {
+            CrashLog.note("Каталог, следующая страница: ${e.message}")
+        } finally {
+            loadingMore = false
+        }
+    }
+
 
     fun go(url: String) {
         if (url != stack.lastOrNull()) stack.add(url)
@@ -266,7 +292,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                             Text("Ничего не нашлось", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
-                        LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                        LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
                             items(all, key = { it.id + "|" + it.navUrl + "|" + it.title }) { e ->
                                 if (e.isBook) BookRow(e) { selected = e } else NavRow(e) { e.navUrl?.let { go(it) } }
                                 HorizontalDivider()
@@ -275,13 +301,13 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                                 item {
                                     var more by remember { mutableStateOf(false) }
                                     TextButton(
-                                        enabled = !more,
+                                        enabled = !more && !loadingMore,
                                         onClick = {
                                             more = true
                                             scope.launch {
                                                 runCatching { Opds.load(url) }.onSuccess {
                                                     extra.addAll(it.entries)
-                                                    next = it.nextUrl
+                                                    next = it.nextUrl?.takeUnless { newUrl -> newUrl == url }
                                                 }
                                                 more = false
                                             }
