@@ -2,12 +2,17 @@ package com.shoosman.bookapp.data
 
 import android.content.Context
 import com.shoosman.bookapp.net.Http
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
+import org.json.JSONObject
 import java.net.URLEncoder
 
 /** Запись каталога: раздел (куда можно зайти) или книга (только описание — без скачивания). */
@@ -33,6 +38,7 @@ data class OpdsEntry(
 data class OpdsCatalog(val name: String, val url: String) {
     val host: String get() = runCatching { java.net.URL(url).host.removePrefix("www.") }.getOrDefault("")
     val isFlibustaLike: Boolean get() = Regex("""flibusta|coollib""").containsMatchIn(host)
+    val isLibriVox: Boolean get() = host == "librivox.org" && url.contains("/api/feed/audiobooks")
 }
 
 data class OpdsFeed(val title: String, val entries: List<OpdsEntry>, val nextUrl: String?)
@@ -46,24 +52,41 @@ object Opds {
     private const val KEY_LIST = "catalogs"
     const val DEFAULT_HOST = "flibusta.is"
 
+    /** LibriVox использует собственный публичный JSON API с MP3 ZIP-архивами. */
+    val libriVox = OpdsCatalog(
+        "LibriVox · аудиокниги",
+        "https://librivox.org/api/feed/audiobooks/?format=json&limit=50&sort_order=desc&coverart=1",
+    )
+
     /** Готовые каталоги для быстрого добавления. */
     val presets = listOf(
         OpdsCatalog("Флибуста", "https://flibusta.is/opds"),
         OpdsCatalog("Project Gutenberg", "https://m.gutenberg.org/ebooks.opds/"),
+        libriVox,
     )
 
     fun catalogs(ctx: Context): List<OpdsCatalog> {
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val raw = p.getString(KEY_LIST, null)
-        if (raw == null) {
-            // Раньше хранился только адрес зеркала Флибусты
+        val saved = if (raw == null) {
             val host = p.getString("host", null)?.ifBlank { null } ?: DEFAULT_HOST
-            return listOf(OpdsCatalog("Флибуста", "https://$host/opds"))
-        }
-        return runCatching {
+            listOf(OpdsCatalog("Флибуста", "https://$host/opds"))
+        } else runCatching {
             val a = org.json.JSONArray(raw)
-            (0 until a.length()).map { a.getJSONObject(it).let { o -> OpdsCatalog(o.getString("name"), o.getString("url")) } }
+            (0 until a.length()).map { a.getJSONObject(it).let { o ->
+                OpdsCatalog(o.getString("name"), o.getString("url"))
+            } }
         }.getOrDefault(emptyList())
+
+        // Одна миграция: добавить источник аудио в существующие библиотеки,
+        // не возвращать его снова, если пользователь впоследствии удалит.
+        if (!p.getBoolean("librivox-migrated", false)) {
+            val result = if (saved.any { it.isLibriVox }) saved else saved + libriVox
+            saveCatalogs(ctx, result)
+            p.edit().putBoolean("librivox-migrated", true).apply()
+            return result
+        }
+        return saved
     }
 
     fun saveCatalogs(ctx: Context, list: List<OpdsCatalog>) {
@@ -89,6 +112,11 @@ object Opds {
         synchronized(searchTemplates) {
             searchTemplates[c.url]?.let { return@withContext it }
             if (c.url in noSearchTemplates) return@withContext null
+        }
+        if (c.isLibriVox) {
+            return@withContext c.url.substringBefore("&offset=")
+                .substringBefore("&title=")
+                .substringBefore("&author=") + "&title={searchTerms}"
         }
         if (c.isFlibustaLike) {
             val base = java.net.URL(c.url).let { "${it.protocol}://${it.host}" }
@@ -118,6 +146,107 @@ object Opds {
             .replace(Regex("""\{[^}]+\?\}"""), "")
     }
 
+    /**
+     * Ищем по названию и автору. В Flibusta поиск автора выдаёт навигационные
+     * записи, поэтому заходим в подходящие записи и забираем реальные книги.
+     */
+    suspend fun searchBooks(c: OpdsCatalog, query: String): List<OpdsEntry> = supervisorScope {
+        val t = searchTemplate(c) ?: return@supervisorScope emptyList()
+        val q = query.trim()
+        if (q.isEmpty()) return@supervisorScope emptyList()
+        val parts = q.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val reverse = parts.reversed().joinToString(" ")
+        val urls = when {
+            c.isLibriVox -> {
+                val base = c.url.substringBefore("&offset=").substringBefore("&title=").substringBefore("&author=")
+                val names = listOfNotNull(parts.firstOrNull(), parts.lastOrNull()).distinct()
+                listOf(searchUrl(t, q)) + names.map { name ->
+                    "$base&author=" + URLEncoder.encode(name, "UTF-8")
+                }
+            }
+            c.isFlibustaLike -> listOf(searchUrl(t, q)) +
+                listOf(q, reverse).distinct().map { searchUrl(t, it, authors = true) }
+            else -> listOf(searchUrl(t, q))
+        }.distinct()
+
+        val results = urls.map { url ->
+            async(Dispatchers.IO) {
+                try {
+                    val entries = load(url).entries
+                    if (!c.isFlibustaLike || !url.contains("searchType=authors")) {
+                        entries.filter { it.isBook }
+                    } else {
+                        val matches = entries.filter { entry ->
+                            !entry.isBook && entry.navUrl != null && BookSearch.matches(q, entry.title)
+                        }.take(4)
+                        val direct = entries.filter { it.isBook }
+                        direct + matches.flatMap { entry ->
+                            try {
+                                val authorsPage = load(entry.navUrl!!).entries
+                                authorsPage.filter { it.isBook }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+        }.awaitAll().flatten()
+        results.distinctBy { it.id.ifBlank { it.title + "|" + it.authors.joinToString() } }
+    }
+
+    private fun isLibriVoxUrl(url: String): Boolean =
+        runCatching {
+            val u = java.net.URL(url)
+            u.host.removePrefix("www.") == "librivox.org" && u.path.contains("/api/feed/audiobooks")
+        }.getOrDefault(false)
+
+    private fun parseLibriVox(json: String, url: String): OpdsFeed {
+        val books = JSONObject(json).optJSONArray("books") ?: org.json.JSONArray()
+        val entries = (0 until books.length()).map { index ->
+            val b = books.getJSONObject(index)
+            val people = b.optJSONArray("authors") ?: org.json.JSONArray()
+            val authors = (0 until people.length()).map { j ->
+                val a = people.getJSONObject(j)
+                listOf(a.optString("first_name"), a.optString("last_name"))
+                    .filter { it.isNotBlank() }.joinToString(" ").trim()
+            }.filter { it.isNotEmpty() }
+            val zip = b.optString("url_zip_file")
+            val language = b.optString("language")
+            OpdsEntry(
+                id = "librivox:" + b.optString("id"),
+                title = b.optString("title"),
+                authors = authors,
+                summary = b.optString("description"),
+                coverUrl = b.optString("coverart_thumbnail").takeIf { it.startsWith("http") }
+                    ?: b.optString("coverart_jpg").takeIf { it.startsWith("http") },
+                navUrl = null,
+                genres = listOf("Аудиокнига", language).filter { it.isNotBlank() },
+                series = "",
+                seriesIndex = 0f,
+                isBook = true,
+                related = emptyList(),
+                downloads = if (zip.startsWith("https://") || zip.startsWith("http://"))
+                    listOf("application/zip" to zip) else emptyList(),
+            )
+        }
+        val limit = Regex("""[?&]limit=(\\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 50
+        val offset = Regex("""[?&]offset=(\\d+)""").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val nextOffset = offset + limit
+        val next = if (books.length() >= limit) {
+            if (url.contains(Regex("""[?&]offset=\\d+""")))
+                url.replace(Regex("""([?&])offset=\\d+""")) { m -> "${m.groupValues[1]}offset=$nextOffset" }
+            else url + "&offset=$nextOffset"
+        } else null
+        return OpdsFeed("LibriVox · аудиокниги", entries, next)
+    }
+
     private fun fetch(url: String): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Chtets/1.0 (OPDS)")
@@ -131,6 +260,7 @@ object Opds {
 
     suspend fun load(url: String, forceRefresh: Boolean = false): OpdsFeed = withContext(Dispatchers.IO) {
         val xml = fetch(url)
+        if (isLibriVoxUrl(url)) return@withContext parseLibriVox(xml, url)
         if (!xml.trimStart().startsWith("<?xml") && !xml.contains("<feed")) {
             error("По этому адресу нет каталога OPDS. Проверьте адрес зеркала.")
         }
