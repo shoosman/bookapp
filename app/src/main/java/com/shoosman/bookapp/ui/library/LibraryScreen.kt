@@ -64,6 +64,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.shadow
 import com.shoosman.bookapp.App
 import kotlinx.coroutines.launch
+import com.shoosman.bookapp.data.BookSearch
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
 import com.shoosman.bookapp.data.SeriesGuess
@@ -198,7 +199,9 @@ fun LibraryTab(
                 },
                 actions = {
                     if (searching) {
-                        IconButton(onClick = { searching = false; query = "" }) { Icon(Icons.Filled.Close, "Закрыть поиск") }
+                        IconButton(onClick = {
+                            if (query.isNotEmpty()) query = "" else searching = false
+                        }) { Icon(Icons.Filled.Close, if (query.isNotEmpty()) "Очистить поиск" else "Закрыть поиск") }
                     } else {
                         IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Поиск") }
                     }
@@ -248,12 +251,11 @@ fun LibraryTab(
         val q = query.trim().lowercase()
         val shown = remember(all, shelf, downloadedOnly, genre, q, sort) {
             all.asSequence()
-                .filter { shelf == SHELF_ALL || it.status == shelf }
+                .filter { q.isNotBlank() || shelf == SHELF_ALL || it.status == shelf }
                 .filter { !downloadedOnly || it.hasText || it.hasAudio }
                 .filter { genre.isEmpty() || genre in it.genreList }
                 .filter {
-                    q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
-                        it.series.lowercase().contains(q) || it.genres.lowercase().contains(q)
+                    BookSearch.matches(q, it.title, it.author, it.series, it.genres)
                 }
                 .toList()
                 .let { list ->
