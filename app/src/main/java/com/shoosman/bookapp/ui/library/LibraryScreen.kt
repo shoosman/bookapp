@@ -119,6 +119,7 @@ fun LibraryTab(
     var sortMenu by remember { mutableStateOf(false) }
     var grouped by rememberSaveable { mutableStateOf(true) }
     var genre by rememberSaveable { mutableStateOf("") }
+    var downloadedOnly by rememberSaveable { mutableStateOf(false) }
     var genreMenu by remember { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
 
@@ -193,6 +194,12 @@ fun LibraryTab(
                         label = { Text((if (s == SHELF_ALL) "Все" else BookStatus.label(s)) + " · $count") },
                     )
                 }
+                FilterChip(
+                    selected = downloadedOnly,
+                    onClick = { downloadedOnly = !downloadedOnly },
+                    label = { Text("Скачанные · ${all.count { it.hasText || it.hasAudio }}") },
+                    leadingIcon = { if (downloadedOnly) Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) },
+                )
             }
 
             // Жанры своей библиотеки: самые частые сверху
@@ -224,6 +231,7 @@ fun LibraryTab(
             val q = query.trim().lowercase()
             val shown = all
                 .filter { shelf == SHELF_ALL || it.status == shelf }
+                .filter { !downloadedOnly || it.hasText || it.hasAudio }
                 .filter { genre.isEmpty() || genre in it.genreList }
                 .filter {
                     q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
@@ -388,6 +396,10 @@ private fun BookRow(book: BookEntity, showSeries: Boolean, nested: Boolean = fal
                 val tint = MaterialTheme.colorScheme.onSurfaceVariant
                 if (book.hasText) Icon(Icons.AutoMirrored.Filled.MenuBook, "Есть текст", Modifier.size(16.dp), tint = tint)
                 if (book.hasAudio) Icon(Icons.Filled.Headphones, "Есть аудио", Modifier.size(16.dp), tint = tint)
+                if (book.hasText || book.hasAudio) {
+                    Text("Скачано", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
                 if (book.rating > 0) {
                     Icon(Icons.Filled.Star, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
                     Text("${book.rating}", style = MaterialTheme.typography.labelMedium, color = tint)
