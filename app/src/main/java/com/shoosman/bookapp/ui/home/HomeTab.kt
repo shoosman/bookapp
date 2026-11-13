@@ -273,7 +273,7 @@ private fun tilesOf(shelfBooks: List<BookEntity>, allBooks: List<BookEntity>): L
             out.add("b${book.id}" to listOf(book))
             continue
         }
-        if (placed.add(key)) {
+        if (key != null && placed.add(key)) {
             val series = seriesNames[book.id].orEmpty()
             val sorted = group.sortedWith(compareBy<BookEntity>(
                 {
