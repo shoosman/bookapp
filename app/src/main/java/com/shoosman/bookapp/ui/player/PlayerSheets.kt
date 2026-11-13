@@ -68,11 +68,16 @@ import kotlin.math.roundToInt
 
 /** Заголовок окна: название слева (или по центру) и крестик справа. */
 @Composable
-private fun SheetHeader(title: String, centered: Boolean = false, onClose: () -> Unit) {
-    Box(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
+private fun SheetHeader(title: String, centered: Boolean = false, compact: Boolean = false, onClose: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(
+        start = if (compact) 20.dp else 24.dp,
+        end = 8.dp,
+        top = if (compact) 0.dp else 4.dp,
+        bottom = if (compact) 0.dp else 4.dp,
+    )) {
         Text(
             title,
-            style = MaterialTheme.typography.titleLarge,
+            style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -195,11 +200,11 @@ fun SleepSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
     var picked by remember { mutableIntStateOf(sleepOptions[startIndex]) }
     val active = s.sleepLeftMs > 0 || s.sleepEndOfChapter
 
-    Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-        SheetHeader("Таймер сна", onClose = onClose)
-        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        SheetHeader("Таймер сна", compact = true, onClose = onClose)
+        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
         if (active) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (s.sleepEndOfChapter) "Сейчас: до конца главы" else "Сейчас: остановлю через ${fmtTime(s.sleepLeftMs)}",
                     style = MaterialTheme.typography.bodyMedium,
@@ -219,10 +224,10 @@ fun SleepSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
             )
         }
         Row(
-            Modifier.fillMaxWidth().clickable { endOfChapter = !endOfChapter }.padding(horizontal = 24.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().clickable { endOfChapter = !endOfChapter }.padding(horizontal = 20.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("До конца главы", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text("До конца главы", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             Switch(checked = endOfChapter, onCheckedChange = { endOfChapter = it })
         }
         Button(
@@ -235,17 +240,17 @@ fun SleepSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
                 }
                 onClose()
             },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).height(54.dp),
-        ) { Text("Запустить", style = MaterialTheme.typography.titleMedium) }
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp).height(44.dp),
+        ) { Text("Запустить", style = MaterialTheme.typography.titleSmall) }
     }
 }
 
 /** Барабан выбора: бесконечная прокрутка, выбранное — по центру между линиями. */
 @Composable
 private fun WheelPicker(items: List<String>, initialIndex: Int, enabled: Boolean, onSelected: (Int) -> Unit) {
-    val rowH = 52.dp
-    val visible = 5
+    val rowH = 42.dp
+    val visible = 3
     val loops = 400
     val start = loops / 2 * items.size + initialIndex
     val state = rememberLazyListState(initialFirstVisibleItemIndex = start - visible / 2)
@@ -272,14 +277,14 @@ private fun WheelPicker(items: List<String>, initialIndex: Int, enabled: Boolean
                 Box(Modifier.height(rowH).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
                         items[i % items.size],
-                        fontSize = if (dist == 0) 28.sp else 24.sp,
+                        fontSize = if (dist == 0) 24.sp else 19.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = when (dist) { 0 -> 1f; 1 -> 0.75f; else -> 0.3f }),
                     )
                 }
             }
         }
         // Линии вокруг выбранного значения
-        Column(Modifier.width(200.dp)) {
+        Column(Modifier.width(176.dp)) {
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface, thickness = 1.dp)
             Spacer(Modifier.height(rowH - 2.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface, thickness = 1.dp)
@@ -313,16 +318,16 @@ fun SpeedSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-        SheetHeader("Скорость", onClose = onClose)
-        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        SheetHeader("Скорость", compact = true, onClose = onClose)
+        HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
         Text(
             "${fmtSpeed(value)}x",
-            fontSize = 34.sp,
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+            fontSize = 26.sp,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
             textAlign = TextAlign.Center,
         )
-        BoxWithConstraints(Modifier.fillMaxWidth().height(64.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(42.dp)) {
             val side = (maxWidth - tickW) / 2
             LazyRow(
                 state = state,
@@ -337,7 +342,7 @@ fun SpeedSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
                         Box(
                             Modifier
                                 .width(if (major) 2.dp else 1.5.dp)
-                                .height(if (major) 34.dp else 22.dp)
+                                .height(if (major) 26.dp else 16.dp)
                                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = if (major) 0.9f else 0.45f)),
                         )
                     }
@@ -348,25 +353,25 @@ fun SpeedSheet(s: PlayerUi, player: PlayerConnection, onClose: () -> Unit) {
                 Modifier
                     .align(Alignment.Center)
                     .width(3.dp)
-                    .height(52.dp)
+                    .height(36.dp)
                     .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
             )
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 8.dp),
         ) {
             items(count = speedPresets.size) { i ->
                 val p = speedPresets[i]
                 val sel = abs(value - p) < 0.01f
                 Surface(
                     onClick = { scope.launch { state.animateScrollToItem(indexOf(p)) } },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = if (sel) MaterialTheme.colorScheme.onSurface else Color.Transparent,
                     contentColor = if (sel) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
                     border = if (sel) null else BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier.size(80.dp, 48.dp),
+                    modifier = Modifier.size(68.dp, 38.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) { Text("${fmtSpeed(p)}x", fontWeight = FontWeight.SemiBold) }
                 }
