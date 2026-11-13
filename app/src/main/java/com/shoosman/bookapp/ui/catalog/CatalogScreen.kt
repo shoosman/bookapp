@@ -41,6 +41,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,6 +90,11 @@ import com.shoosman.bookapp.data.OpdsFeed
 import com.shoosman.bookapp.data.SeriesGuess
 import com.shoosman.bookapp.net.Http
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -128,6 +134,68 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     var selected by remember { mutableStateOf<OpdsEntry?>(null) }
     var reload by remember { mutableStateOf(0) }
     var template by remember { mutableStateOf<String?>(null) }
+    var globalQuery by rememberSaveable { mutableStateOf("") }
+    var globalSearching by remember { mutableStateOf(false) }
+    var globalResults by remember { mutableStateOf<List<OpdsEntry>>(emptyList()) }
+    var globalErrors by remember { mutableStateOf(0) }
+
+    // Параллельный поиск по всем добавленным OPDS-каталогам.
+    LaunchedEffect(globalQuery, catalogs, catalogUrl) {
+        val q = globalQuery.trim()
+        if (catalogUrl.isNotEmpty() || q.length < 2) {
+            globalResults = emptyList()
+            globalSearching = false
+            globalErrors = 0
+            return@LaunchedEffect
+        }
+        delay(450)
+        globalSearching = true
+        try {
+            val batches = supervisorScope {
+                catalogs.map { c ->
+                    async {
+                        try {
+                            val template = Opds.searchTemplate(c)
+                            if (template == null) emptyList<OpdsEntry>() to false
+                            else Opds.load(Opds.searchUrl(template, q)).entries.filter { it.isBook } to false
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptyList<OpdsEntry>() to true
+                        }
+                    }
+                }.awaitAll()
+            }
+            globalErrors = batches.count { it.second }
+            val unique = LinkedHashMap<String, OpdsEntry>()
+            batches.flatMap { it.first }.forEach { book ->
+                val key = CoverFinder.norm(book.title) + "|" +
+                    CoverFinder.norm(book.authors.firstOrNull().orEmpty())
+                val prev = unique[key]
+                if (prev == null) unique[key] = book
+                else unique[key] = prev.copy(
+                    downloads = (prev.downloads + book.downloads).distinctBy { it.second },
+                    related = (prev.related + book.related).distinct(),
+                    coverUrl = prev.coverUrl ?: book.coverUrl,
+                    summary = prev.summary.ifBlank { book.summary },
+                )
+            }
+            val normalizedQuery = CoverFinder.norm(q)
+            globalResults = unique.values.sortedByDescending { book ->
+                val title = CoverFinder.norm(book.title)
+                val author = CoverFinder.norm(book.authors.joinToString(" "))
+                when {
+                    title == normalizedQuery -> 100
+                    title.startsWith(normalizedQuery) -> 80
+                    title.contains(normalizedQuery) -> 60
+                    author.contains(normalizedQuery) -> 40
+                    else -> 0
+                }
+            }
+        } finally {
+            globalSearching = false
+        }
+    }
 
     fun openCatalog(c: OpdsCatalog?) {
         catalogUrl = c?.url.orEmpty()
@@ -251,6 +319,34 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (catalog == null) {
+                OutlinedTextField(
+                    value = globalQuery,
+                    onValueChange = { globalQuery = it },
+                    label = { Text("Искать во всех каталогах") },
+                    placeholder = { Text("Название книги или автор") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+                if (globalQuery.trim().length >= 2) {
+                    if (globalSearching) {
+                        LinearSearchProgress()
+                    }
+                    if (globalErrors > 0 && !globalSearching) {
+                        Text("Недоступных каталогов: $globalErrors", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                    }
+                    if (!globalSearching && globalResults.isEmpty()) {
+                        Text("Совпадений нет", modifier = Modifier.padding(16.dp))
+                    }
+                    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                        items(globalResults, key = { it.id + "|" + it.title }) { book ->
+                            BookRow(book) { selected = book }
+                            HorizontalDivider()
+                        }
+                    }
+                    return@Column
+                }
                 CatalogList(
                     catalogs,
                     onOpen = { openCatalog(it) },
@@ -392,6 +488,11 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
             },
         )
     }
+}
+
+@Composable
+private fun LinearSearchProgress() {
+    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
