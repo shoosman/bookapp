@@ -159,46 +159,46 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
         delay(450)
         globalSearching = true
         try {
-            val batches = supervisorScope {
+            globalResults = emptyList()
+            globalErrors = 0
+            val unique = LinkedHashMap<String, OpdsEntry>()
+            val normalizedQuery = CoverFinder.norm(q)
+            supervisorScope {
                 catalogs.map { c ->
-                    async {
+                    launch {
                         try {
-                            val template = Opds.searchTemplate(c)
-                            if (template == null) emptyList<OpdsEntry>() to false
-                            else Opds.load(Opds.searchUrl(template, q)).entries.filter { it.isBook } to false
+                            val search = Opds.searchTemplate(c)
+                            val results = if (search == null) emptyList() else
+                                Opds.load(Opds.searchUrl(search, q)).entries.filter { it.isBook }
+                            results.forEach { book ->
+                                val key = CoverFinder.norm(book.title) + "|" +
+                                    CoverFinder.norm(book.authors.firstOrNull().orEmpty())
+                                val prev = unique[key]
+                                unique[key] = if (prev == null) book else prev.copy(
+                                    downloads = (prev.downloads + book.downloads).distinctBy { it.second },
+                                    related = (prev.related + book.related).distinct(),
+                                    coverUrl = prev.coverUrl ?: book.coverUrl,
+                                    summary = prev.summary.ifBlank { book.summary },
+                                )
+                            }
+                            globalResults = unique.values.sortedByDescending { book ->
+                                val title = CoverFinder.norm(book.title)
+                                val author = CoverFinder.norm(book.authors.joinToString(" "))
+                                when {
+                                    title == normalizedQuery -> 100
+                                    title.startsWith(normalizedQuery) -> 80
+                                    title.contains(normalizedQuery) -> 60
+                                    author.contains(normalizedQuery) -> 40
+                                    else -> 0
+                                }
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
-                            emptyList<OpdsEntry>() to true
+                            globalErrors++
                         }
                     }
-                }.awaitAll()
-            }
-            globalErrors = batches.count { it.second }
-            val unique = LinkedHashMap<String, OpdsEntry>()
-            batches.flatMap { it.first }.forEach { book ->
-                val key = CoverFinder.norm(book.title) + "|" +
-                    CoverFinder.norm(book.authors.firstOrNull().orEmpty())
-                val prev = unique[key]
-                if (prev == null) unique[key] = book
-                else unique[key] = prev.copy(
-                    downloads = (prev.downloads + book.downloads).distinctBy { it.second },
-                    related = (prev.related + book.related).distinct(),
-                    coverUrl = prev.coverUrl ?: book.coverUrl,
-                    summary = prev.summary.ifBlank { book.summary },
-                )
-            }
-            val normalizedQuery = CoverFinder.norm(q)
-            globalResults = unique.values.sortedByDescending { book ->
-                val title = CoverFinder.norm(book.title)
-                val author = CoverFinder.norm(book.authors.joinToString(" "))
-                when {
-                    title == normalizedQuery -> 100
-                    title.startsWith(normalizedQuery) -> 80
-                    title.contains(normalizedQuery) -> 60
-                    author.contains(normalizedQuery) -> 40
-                    else -> 0
-                }
+                }.forEach { it.join() }
             }
         } finally {
             globalSearching = false
@@ -337,6 +337,28 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 )
                 if (globalQuery.trim().length >= 2) {
+                    val encoded = URLEncoder.encode(globalQuery.trim(), "UTF-8")
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://author.today/search?category=works&q=$encoded") },
+                            label = { Text("Author.Today") },
+                        )
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://www.litres.ru/search/?q=$encoded") },
+                            label = { Text("Литрес") },
+                        )
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://litmarket.ru/") },
+                            label = { Text("ЛитМаркет") },
+                        )
+                        AssistChip(
+                            onClick = { onOpenBrowser("https://litnet.com/") },
+                            label = { Text("Литнет") },
+                        )
+                    }
                     if (globalSearching) {
                         LinearSearchProgress()
                     }
