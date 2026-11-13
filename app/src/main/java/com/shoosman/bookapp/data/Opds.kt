@@ -25,23 +25,21 @@ data class OpdsEntry(
     val isBook: Boolean,
     /** Ссылки «Все книги автора», «Книги серии» и т. п. */
     val related: List<Pair<String, String>>,
-    /** Файлы книги (тип → адрес). Используются только в каталогах, где скачивание законно. */
+    /** Файлы книги (тип → адрес), доступные в OPDS-каталоге. */
     val downloads: List<Pair<String, String>> = emptyList(),
 )
 
 /** Каталог OPDS из списка пользователя. */
 data class OpdsCatalog(val name: String, val url: String) {
     val host: String get() = runCatching { java.net.URL(url).host.removePrefix("www.") }.getOrDefault("")
-    /** Флибуста и подобные библиотеки — только для поиска книг, без скачивания. */
-    val catalogOnly: Boolean get() = Regex("""flibusta|coollib|librusec|lib\.rus\.ec|litmir|royallib|rulit|libking|knigism|bookz""").containsMatchIn(host)
     val isFlibustaLike: Boolean get() = Regex("""flibusta|coollib""").containsMatchIn(host)
 }
 
 data class OpdsFeed(val title: String, val entries: List<OpdsEntry>, val nextUrl: String?)
 
 /**
- * Каталог книг в формате OPDS (Флибуста и любые другие). Ссылки на скачивание файлов
- * намеренно не читаются: каталог — чтобы находить книги и покупать их в магазинах.
+ * Каталог книг в формате OPDS (Флибуста и любые другие).
+ * Читает ссылки на файлы, предоставленные каталогом.
  */
 object Opds {
     private const val PREFS = "catalog"
