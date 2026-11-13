@@ -139,6 +139,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     var byAuthor by rememberSaveable { mutableStateOf(false) }
     var localSearchResults by remember { mutableStateOf<List<OpdsEntry>?>(null) }
     var localSearchBusy by remember { mutableStateOf(false) }
+    var localSearchError by remember { mutableStateOf<String?>(null) }
     var menu by remember { mutableStateOf(false) }
     var editDialog by remember { mutableStateOf<OpdsCatalog?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -214,6 +215,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
         searching = false
         query = ""
         localSearchResults = null
+        localSearchError = null
     }
 
     val current = stack.lastOrNull()
@@ -278,7 +280,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     if (searching && catalog != null) {
                         TextField(
                             value = query,
-                            onValueChange = { query = it; localSearchResults = null },
+                            onValueChange = { query = it; localSearchResults = null; localSearchError = null },
                             placeholder = { Text(if (byAuthor) "Автор" else "Название или автор") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -288,10 +290,23 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                                         localSearchResults = null
                                         go(Opds.searchUrl(template!!, query, authors = true))
                                     } else {
+                                        val submittedQuery = query
+                                        val submittedCatalog = catalog
                                         scope.launch {
                                             localSearchBusy = true
+                                            localSearchResults = null
+                                            localSearchError = null
                                             try {
-                                                localSearchResults = Opds.searchBooks(catalog, query)
+                                                val matches = Opds.searchBooks(submittedCatalog, submittedQuery)
+                                                if (query == submittedQuery && catalogUrl == submittedCatalog.url) {
+                                                    localSearchResults = matches
+                                                }
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (e: Exception) {
+                                                if (query == submittedQuery && catalogUrl == submittedCatalog.url) {
+                                                    localSearchError = ErrorText.ru(e, "Поиск не удался")
+                                                }
                                             } finally {
                                                 localSearchBusy = false
                                             }
@@ -323,9 +338,11 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                                 if (query.isNotEmpty()) {
                                     query = ""
                                     localSearchResults = null
+                                    localSearchError = null
                                 } else {
                                     searching = false
                                     localSearchResults = null
+                                    localSearchError = null
                                 }
                             }) { Icon(Icons.Filled.Close, if (query.isNotEmpty()) "Очистить поиск" else "Закрыть поиск") }
                             else IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Поиск") }
@@ -435,6 +452,9 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                 localSearchBusy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
+                localSearchError != null -> Box(
+                    Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center
+                ) { Text(localSearchError!!, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 localSearchResults != null -> {
                     val results = localSearchResults.orEmpty()
                     if (results.isEmpty()) {
