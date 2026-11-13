@@ -112,7 +112,7 @@ private fun groupSeries(list: List<BookEntity>): List<Entry> {
         val authorKey = surnameKey(book.author)
         return exact["$titleKey|$authorKey"]
             ?: blankAuthor[titleKey]
-            ?: if (authorKey.isBlank()) anyAuthor[titleKey] else null
+            ?: (if (authorKey.isBlank()) anyAuthor[titleKey] else null)
             ?: ""
     }
 
@@ -239,6 +239,36 @@ fun LibraryTab(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         val all = books ?: return@Scaffold
+        val shelfCounts = remember(all) { BookStatus.ordered.associateWith { status -> all.count { it.status == status } } }
+        val downloadedCount = remember(all) { all.count { it.hasText || it.hasAudio } }
+        val genres = remember(all) {
+            all.flatMap { it.genreList }.groupingBy { it }.eachCount()
+                .entries.sortedByDescending { it.value }.map { it.key to it.value }
+        }
+        val q = query.trim().lowercase()
+        val shown = remember(all, shelf, downloadedOnly, genre, q, sort) {
+            all.asSequence()
+                .filter { shelf == SHELF_ALL || it.status == shelf }
+                .filter { !downloadedOnly || it.hasText || it.hasAudio }
+                .filter { genre.isEmpty() || genre in it.genreList }
+                .filter {
+                    q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
+                        it.series.lowercase().contains(q) || it.genres.lowercase().contains(q)
+                }
+                .toList()
+                .let { list ->
+                    when (sort) {
+                        1 -> list.sortedBy { it.title.lowercase() }
+                        2 -> list.sortedBy { it.author.lowercase() }
+                        3 -> list.sortedByDescending { it.addedAt }
+                        4 -> list.sortedByDescending { it.rating }
+                        else -> list.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
+                    }
+                }
+        }
+        val entries = remember(shown, grouped) {
+            if (grouped) groupSeries(shown) else shown.map { Single(it) }
+        }
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (importer.busy || cleaning) LinearProgressIndicator(Modifier.fillMaxWidth())
 
@@ -247,7 +277,7 @@ fun LibraryTab(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 (listOf(SHELF_ALL) + BookStatus.ordered).forEach { s ->
-                    val count = if (s == SHELF_ALL) all.size else all.count { it.status == s }
+                    val count = if (s == SHELF_ALL) all.size else shelfCounts[s] ?: 0
                     FilterChip(
                         selected = shelf == s,
                         onClick = { onShelfChange(s) },
@@ -257,14 +287,12 @@ fun LibraryTab(
                 FilterChip(
                     selected = downloadedOnly,
                     onClick = { downloadedOnly = !downloadedOnly },
-                    label = { Text("Скачанные · ${all.count { it.hasText || it.hasAudio }}") },
+                    label = { Text("Скачанные · $downloadedCount") },
                     leadingIcon = { if (downloadedOnly) Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) },
                 )
             }
 
-            // Жанры своей библиотеки: самые частые сверху
-            val genres = all.flatMap { it.genreList }.groupingBy { it }.eachCount()
-                .entries.sortedByDescending { it.value }.map { it.key to it.value }
+            // Жанры и их частоты уже посчитаны выше и кешированы.
             if (genres.isNotEmpty()) {
                 Box(Modifier.padding(horizontal = 16.dp)) {
                     FilterChip(
@@ -288,24 +316,6 @@ fun LibraryTab(
                 }
             }
 
-            val q = query.trim().lowercase()
-            val shown = all
-                .filter { shelf == SHELF_ALL || it.status == shelf }
-                .filter { !downloadedOnly || it.hasText || it.hasAudio }
-                .filter { genre.isEmpty() || genre in it.genreList }
-                .filter {
-                    q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q) ||
-                        it.series.lowercase().contains(q) || it.genres.lowercase().contains(q)
-                }
-                .let { list ->
-                    when (sort) {
-                        1 -> list.sortedBy { it.title.lowercase() }
-                        2 -> list.sortedBy { it.author.lowercase() }
-                        3 -> list.sortedByDescending { it.addedAt }
-                        4 -> list.sortedByDescending { it.rating }
-                        else -> list.sortedByDescending { maxOf(it.lastOpenedAt, it.addedAt) }
-                    }
-                }
 
             if (shown.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
@@ -321,7 +331,6 @@ fun LibraryTab(
                     )
                 }
             } else {
-                val entries = if (grouped) groupSeries(shown) else shown.map { Single(it) }
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                     for (e in entries) {
                         when (e) {
