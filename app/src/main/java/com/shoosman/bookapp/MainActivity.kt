@@ -34,15 +34,17 @@ import com.shoosman.bookapp.ui.reader.ReaderScreen
 import com.shoosman.bookapp.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
-    // Синхронизация при входе в приложение и при уходе из него
+    // Не запускаем тяжёлую синхронизацию во время холодного старта.
+    // Даём интерфейсу и Room завершить первую загрузку библиотеки.
     override fun onStart() {
         super.onStart()
-        (application as App).sync.requestSync(1_500)
+        (application as App).sync.requestSync(60_000)
     }
 
     override fun onStop() {
         super.onStop()
-        (application as App).sync.requestSync(0)
+        // Не отменяем текущую задачу ради немедленной синхронизации при сворачивании.
+        // Изменения библиотеки отдельно отслеживаются через startAutoSync().
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
