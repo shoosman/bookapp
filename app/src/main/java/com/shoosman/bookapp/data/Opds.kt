@@ -5,6 +5,8 @@ import com.shoosman.bookapp.net.Http
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import okhttp3.CacheControl
+import java.util.concurrent.TimeUnit
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
@@ -89,13 +91,17 @@ object Opds {
     private const val CACHE_TTL_MS = 10 * 60 * 1000L
 
     private val searchTemplates = HashMap<String, String?>()
+    private val noSearchTemplates = HashSet<String>()
 
     /** Шаблон поиска каталога ({searchTerms}); null — каталог поиск не поддерживает. */
     suspend fun searchTemplate(c: OpdsCatalog): String? = withContext(Dispatchers.IO) {
-        searchTemplates[c.url]?.let { return@withContext it }
+        synchronized(searchTemplates) {
+            searchTemplates[c.url]?.let { return@withContext it }
+            if (c.url in noSearchTemplates) return@withContext null
+        }
         if (c.isFlibustaLike) {
             val base = java.net.URL(c.url).let { "${it.protocol}://${it.host}" }
-            return@withContext "$base/opds/search?searchType=books&searchTerm={searchTerms}".also { searchTemplates[c.url] = it }
+            return@withContext "$base/opds/search?searchType=books&searchTerm={searchTerms}".also { synchronized(searchTemplates) { searchTemplates[c.url] = it } }
         }
         val t = runCatching {
             val xml = fetch(c.url)
@@ -109,7 +115,9 @@ object Opds {
                     (urls.firstOrNull { it.attr("type").contains("atom") } ?: urls.firstOrNull())?.attr("template")?.let { abs(descUrl, it) }
                 }
         }.getOrNull()
-        searchTemplates[c.url] = t
+        synchronized(searchTemplates) {
+            if (t != null) searchTemplates[c.url] = t else noSearchTemplates.add(c.url)
+        }
         t
     }
 
@@ -119,8 +127,11 @@ object Opds {
             .replace(Regex("""\{[^}]+\?\}"""), "")
     }
 
-    private fun fetch(url: String): String {
+    private fun fetch(url: String, forceRefresh: Boolean = false): String {
+        val cachePolicy = if (forceRefresh) CacheControl.FORCE_NETWORK
+            else CacheControl.Builder().maxStale(24, TimeUnit.HOURS).build()
         val req = Request.Builder().url(url)
+            .cacheControl(cachePolicy)
             .header("User-Agent", "Chtets/1.0 (OPDS)")
             .header("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.5")
             .build()
@@ -137,7 +148,11 @@ object Opds {
                 return@withContext cached.feed
             }
         }
-        val xml = fetch(url)
+        val xml = try { fetch(url, forceRefresh) } catch (e: Exception) {
+            val stale = synchronized(feedCache) { feedCache[url] }
+            if (stale != null && !forceRefresh) return@withContext stale.feed
+            throw e
+        }
         if (!xml.trimStart().startsWith("<?xml") && !xml.contains("<feed")) {
             error("По этому адресу нет каталога OPDS. Проверьте адрес зеркала.")
         }
