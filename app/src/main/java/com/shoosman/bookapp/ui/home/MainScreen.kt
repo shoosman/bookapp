@@ -42,13 +42,9 @@ fun MainScreen(
     var shelf by rememberSaveable { mutableIntStateOf(SHELF_ALL) }
     val importer = remember { Importer() }
 
-    // После обновления один раз дополняем библиотеку (обложки, жанры, циклы) — когда облако уже подтянулось.
-    androidx.compose.runtime.LaunchedEffect(books?.size) {
-        if ((books?.size ?: 0) > 0) {
-            kotlinx.coroutines.delay(15_000)
-            App.instance.enricher.run(auto = true)
-        }
-    }
+    // Массовое дополнение метаданных не запускаем при открытии: большие библиотеки
+    // могут вызвать длительную нагрузку и зависание интерфейса (ANR).
+    // Ручной запуск остаётся доступен в настройках.
 
     // Поделились ссылкой — открываем «Новую книгу» с ней.
     val shared by App.instance.sharedText.collectAsStateWithLifecycle()
