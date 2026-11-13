@@ -360,6 +360,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                     onOpen = { openCatalog(it) },
                     onEdit = { editDialog = it },
                     onAdd = { adding = true },
+                    onOpenWebsite = onOpenBrowser,
                 )
                 return@Column
             }
@@ -504,7 +505,13 @@ private fun LinearSearchProgress() {
 }
 
 @Composable
-private fun CatalogList(catalogs: List<OpdsCatalog>, onOpen: (OpdsCatalog) -> Unit, onEdit: (OpdsCatalog) -> Unit, onAdd: () -> Unit) {
+private fun CatalogList(
+    catalogs: List<OpdsCatalog>,
+    onOpen: (OpdsCatalog) -> Unit,
+    onEdit: (OpdsCatalog) -> Unit,
+    onAdd: () -> Unit,
+    onOpenWebsite: (String) -> Unit,
+) {
     LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
         items(catalogs, key = { it.url }) { c ->
             Row(
@@ -520,6 +527,35 @@ private fun CatalogList(catalogs: List<OpdsCatalog>, onOpen: (OpdsCatalog) -> Un
                     )
                 }
                 IconButton(onClick = { onEdit(c) }) { Icon(Icons.Filled.MoreVert, "Изменить") }
+            }
+            HorizontalDivider()
+        }
+        item {
+            Text("Современная фантастика и фэнтези",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp))
+            Text("Эти источники открываются во встроенном браузере; это не OPDS-каталоги. Доступные для загрузки файлы можно импортировать в Чтец.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        }
+        items(listOf(
+            "Author.Today" to "https://author.today/",
+            "ЛитМаркет" to "https://litmarket.ru/",
+            "Литнет" to "https://litnet.com/",
+            "Литрес" to "https://www.litres.ru/",
+        )) { (name, url) ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpenWebsite(url) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                    Text("Открыть сайт", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
             }
             HorizontalDivider()
         }
