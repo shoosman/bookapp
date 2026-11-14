@@ -37,7 +37,7 @@ object AudioSources {
     )
     private fun authorSlug(q: String): String = BookSearch.normalize(q)
         .map { c -> transliteration[c] ?: c.toString() }.joinToString("")
-        .trim().replace(Regex("""\\s+"""), "-")
+        .trim().replace(Regex("""\s+"""), "-")
 
     private fun abs(base: String, href: String): String? = runCatching {
         val result = URL(URL(base), href)
