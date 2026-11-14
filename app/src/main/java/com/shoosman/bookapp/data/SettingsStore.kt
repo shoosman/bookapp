@@ -20,8 +20,8 @@ data class AppSettings(
     val justify: Boolean = true,
     val skipBackSec: Int = 15,
     val skipForwardSec: Int = 30,
-    /** Тихий шум против обрезания слов в Bluetooth-магнитолах. */
-    val preventWordClipping: Boolean = false,
+    /** Режим авто: крупные кнопки и защита Bluetooth от обрезания слов. */
+    val carMode: Boolean = false,
     val keepScreenOn: Boolean = true,
     /** true — листание страниц, false — прокрутка */
     val pageMode: Boolean = true,
@@ -57,7 +57,7 @@ class SettingsStore(private val ctx: Context) {
         val justify = booleanPreferencesKey("justify")
         val skipBack = intPreferencesKey("skipBack")
         val skipForward = intPreferencesKey("skipForward")
-        val preventWordClipping = booleanPreferencesKey("preventWordClipping")
+        val carMode = booleanPreferencesKey("carMode")
         val keepScreenOn = booleanPreferencesKey("keepScreenOn")
         val pageMode = booleanPreferencesKey("pageMode")
         val brightness = floatPreferencesKey("brightness")
@@ -83,7 +83,7 @@ class SettingsStore(private val ctx: Context) {
             prefs[K.justify] = s.justify
             prefs[K.skipBack] = s.skipBackSec
             prefs[K.skipForward] = s.skipForwardSec
-            prefs[K.preventWordClipping] = s.preventWordClipping
+            prefs[K.carMode] = s.carMode
             prefs[K.keepScreenOn] = s.keepScreenOn
             prefs[K.pageMode] = s.pageMode
             prefs[K.brightness] = s.brightness
@@ -108,7 +108,7 @@ class SettingsStore(private val ctx: Context) {
             justify = this[K.justify] ?: d.justify,
             skipBackSec = this[K.skipBack] ?: d.skipBackSec,
             skipForwardSec = this[K.skipForward] ?: d.skipForwardSec,
-            preventWordClipping = this[K.preventWordClipping] ?: d.preventWordClipping,
+            carMode = this[K.carMode] ?: d.carMode,
             keepScreenOn = this[K.keepScreenOn] ?: d.keepScreenOn,
             pageMode = this[K.pageMode] ?: d.pageMode,
             brightness = this[K.brightness] ?: d.brightness,
