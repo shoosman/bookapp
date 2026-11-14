@@ -1,6 +1,7 @@
 package com.shoosman.bookapp.ui.catalog
 
 import com.shoosman.bookapp.ErrorText
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -891,10 +892,13 @@ private fun BookSheet(
                     )
                 }
                 Button(
-                    onClick = { onOpenBrowser(downloadPage) },
+                    onClick = { onDismiss(); onOpenBrowser(downloadPage) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) { Text("Открыть скачивание") }
-                TextButton(onClick = { onOpenBrowser(audioPage) }) { Text("Страница книги") }
+                ) {
+                    Text(if (AudioSources.sourceName(e) == "Abook") "Открыть торрент на сайте"
+                         else "Открыть скачивание")
+                }
+                TextButton(onClick = { onDismiss(); onOpenBrowser(audioPage) }) { Text("Страница книги") }
             }
             if (existing != null) {
                 OutlinedButton(onClick = { onOpenBook(existing.id) }, modifier = Modifier.fillMaxWidth()) {
@@ -946,6 +950,9 @@ private fun BookSheet(
                     url.endsWith(".flac")
             }
             val alternative = availableFiles.firstOrNull()
+            val audioTracks = if (audioPage != null && sourceFiles.none { it.first == "application/zip" }) {
+                sourceFiles.filter { it.first.startsWith("audio/") }
+            } else emptyList()
             var dl by remember(e.id, e.title) { mutableStateOf<String?>(null) }
             fun downloadFiles(files: List<Pair<String, String>>) {
                 if (dl != null || files.isEmpty()) return
@@ -975,6 +982,41 @@ private fun BookSheet(
                     dl = outcome.fold({ "Добавлено в библиотеку" }, { ErrorText.ru(it, "Не удалось скачать") })
                 }
             }
+            fun downloadAllAudioTracks(files: List<Pair<String, String>>) {
+                if (dl != null || files.size < 2) return
+                dl = "Скачиваю главы…"
+                repo.appScope.launch {
+                    val outcome = runCatching {
+                        val local = files.mapIndexed { index, file ->
+                            dl = "Скачиваю главу ${index + 1} из ${files.size}…"
+                            com.shoosman.bookapp.data.Downloader.download(
+                                App.instance, file.second, mime = file.first,
+                            )
+                        }
+                        val uris = local.map { Uri.fromFile(it.file) }
+                        val id = if (existing != null) {
+                            repo.attachAudio(existing.id, uris)
+                            existing.id
+                        } else {
+                            repo.createFromAudio(uris).bookId
+                        }
+                        if (existing == null) repo.dao.get(id)?.let { created ->
+                            repo.dao.update(created.copy(
+                                title = e.title,
+                                author = author.ifBlank { created.author },
+                            ))
+                        }
+                    }
+                    dl = outcome.fold({ "Аудиокнига добавлена" }, { ErrorText.ru(it, "Не удалось скачать главы") })
+                }
+            }
+            if (audioTracks.size > 1) {
+                Button(
+                    enabled = dl == null,
+                    onClick = { downloadAllAudioTracks(audioTracks) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text(dl ?: "Скачать все ${audioTracks.size} глав") }
+            }
             if (textFile != null && audioFile != null) {
                 Button(
                     enabled = dl == null,
@@ -989,7 +1031,7 @@ private fun BookSheet(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Скачать текст") }
             }
-            if (audioFile != null) {
+            if (audioFile != null && audioTracks.size <= 1) {
                 OutlinedButton(
                     enabled = dl == null,
                     onClick = { downloadFiles(listOf(audioFile)) },
