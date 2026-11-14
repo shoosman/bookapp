@@ -664,14 +664,18 @@ private fun CatalogList(
                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp),
             )
             Text(
-                "LibriVox — аудиозаписи с бесплатной загрузкой ZIP/MP3. " +
-                    "Современные книги на Литрес и Author.Today открываются во встроенном браузере.",
+                "Русскоязычные каталоги фэнтези, ЛитРПГ и других жанров. " +
+                    "Пока открываются во встроенном браузере, не участвуют в общем OPDS-поиске. " +
+                    "Скачивание зависит от возможностей сайта.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
         items(listOf(
+            "KnigaHub · фэнтези и ЛитРПГ" to "https://knigahub.com/",
+            "Aknigi24 · аудио MP3" to "https://aknigi24.com/",
+            "Abook · аудиокниги и торренты" to "https://tor.abook.casa/category/torrent/",
             "Литрес · аудиокниги" to "https://www.litres.ru/audiobooks/",
             "Author.Today · аудио" to "https://author.today/what-to-listen-to",
         )) { (name, url) ->
