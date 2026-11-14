@@ -595,7 +595,7 @@ private fun CarModePlayer(
 private fun BookmarkAction(
     onClick: () -> Unit,
     enabled: Boolean,
-    size: androidx.compose.ui.unit.Dp = 44.dp,
+    size: androidx.compose.ui.unit.Dp = 48.dp,
 ) {
     Surface(
         onClick = onClick,
