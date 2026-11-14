@@ -25,6 +25,20 @@ object AudioSources {
     private val client by lazy { Http.client.newBuilder().callTimeout(12, TimeUnit.SECONDS).build() }
     private fun encoded(q: String) = URLEncoder.encode(q, "UTF-8")
     private fun pathEncoded(q: String) = encoded(q).replace("+", "%20")
+    // На Aknigi24 страницы авторов имеют адрес /author/pavlov-aleksandr.
+    private val transliteration = mapOf(
+        'а' to "a", 'б' to "b", 'в' to "v", 'г' to "g", 'д' to "d",
+        'е' to "e", 'ж' to "zh", 'з' to "z", 'и' to "i", 'й' to "i",
+        'к' to "k", 'л' to "l", 'м' to "m", 'н' to "n", 'о' to "o",
+        'п' to "p", 'р' to "r", 'с' to "s", 'т' to "t", 'у' to "u",
+        'ф' to "f", 'х' to "kh", 'ц' to "ts", 'ч' to "ch", 'ш' to "sh",
+        'щ' to "shch", 'ы' to "y", 'э' to "e", 'ю' to "iu", 'я' to "ia",
+        'ь' to "", 'ъ' to "",
+    )
+    private fun authorSlug(q: String): String = BookSearch.normalize(q)
+        .map { c -> transliteration[c] ?: c.toString() }.joinToString("")
+        .trim().replace(Regex("""\\s+"""), "-")
+
     private fun abs(base: String, href: String): String? = runCatching {
         val result = URL(URL(base), href)
         if (result.protocol != "https" && result.protocol != "http") return@runCatching null
@@ -59,10 +73,14 @@ object AudioSources {
                     "https://knigahub.com/?s=${encoded(q)}" to null,
                 )
             )
-            "aknigi24.com" -> listOf(
-                "https://aknigi24.com/search?q=${encoded(q)}" to null,
-                "https://aknigi24.com/search?query=${encoded(q)}" to null,
-                "https://aknigi24.com/?q=${encoded(q)}" to null,
+            "aknigi24.com" -> (
+                (if (tokens.size in 2..3) listOf(q, reversed).distinct().map {
+                    "https://aknigi24.com/author/${authorSlug(it)}" to it
+                } else emptyList()) + listOf(
+                    "https://aknigi24.com/search?q=${encoded(q)}" to null,
+                    "https://aknigi24.com/search?query=${encoded(q)}" to null,
+                    "https://aknigi24.com/?q=${encoded(q)}" to null,
+                )
             )
             else -> listOf("https://tor.abook.casa/?s=${encoded(q)}" to null)
         }
