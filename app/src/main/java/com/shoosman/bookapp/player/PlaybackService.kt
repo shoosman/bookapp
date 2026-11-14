@@ -1,13 +1,18 @@
 package com.shoosman.bookapp.player
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -19,19 +24,37 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.MainActivity
 import com.shoosman.bookapp.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 /** Фоновое воспроизведение: уведомление, кнопки на наушниках, экран блокировки. */
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
     private var chapterPlayer: ChapterPlayer? = null
+    private val audioScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val wordClippingGuard = WordClippingGuard()
 
     private val skipBack = SessionCommand(ACTION_SKIP_BACK, Bundle.EMPTY)
     private val skipForward = SessionCommand(ACTION_SKIP_FORWARD, Bundle.EMPTY)
 
     override fun onCreate() {
         super.onCreate()
-        val exo = ExoPlayer.Builder(this)
+        // Аудиопроцессор остаётся побайтово прозрачным вне режима авто.
+        val renderers = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setAudioProcessors(arrayOf<AudioProcessor>(wordClippingGuard))
+                .build()
+        }
+        val exo = ExoPlayer.Builder(this, renderers)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -44,6 +67,13 @@ class PlaybackService : MediaSessionService() {
             .setSeekBackIncrementMs(15_000)
             .setSeekForwardIncrementMs(30_000)
             .build()
+
+        // Переключение режима авто без остановки книги и без изменения аудиофайлов.
+        audioScope.launch {
+            App.instance.settings.flow.collect { settings ->
+                wordClippingGuard.enabled = settings.carMode
+            }
+        }
 
         val openApp = PendingIntent.getActivity(
             this, 0,
@@ -279,6 +309,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        audioScope.cancel()
         raw = null
         current = null
         chapterPlayer = null
