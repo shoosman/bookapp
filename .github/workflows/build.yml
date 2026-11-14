@@ -6,6 +6,10 @@ on:
     paths-ignore: ['**.md']
   workflow_dispatch:
 
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -51,6 +55,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v0.1.${GITHUB_RUN_NUMBER}" "out/Chtets-0.1.${GITHUB_RUN_NUMBER}.apk" \
+            --target "$GITHUB_SHA" \
             --title "Чтец 0.1.${GITHUB_RUN_NUMBER}" \
             --notes "$(git log -1 --pretty=%s)"
 
@@ -60,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git tag -f latest
+          git tag -f latest "$GITHUB_SHA"
           git push -f origin refs/tags/latest
           gh release view latest >/dev/null 2>&1 || \
             gh release create latest --prerelease --title "Обновления" \
