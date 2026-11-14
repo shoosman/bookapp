@@ -80,6 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.CrashLog
+import com.shoosman.bookapp.data.AudioSources
 import com.shoosman.bookapp.data.BookSearch
 import com.shoosman.bookapp.data.BookInfo
 import com.shoosman.bookapp.data.BookStatus
@@ -151,57 +152,70 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
     var globalResults by remember { mutableStateOf<List<OpdsEntry>>(emptyList()) }
     var globalErrors by remember { mutableStateOf(0) }
 
-    // Параллельный поиск по всем добавленным OPDS-каталогам.
+    // OPDS и русскоязычные аудиокаталоги ищем параллельно. Каждый ответ
+    // появляется сразу; ошибка одного сайта не останавливает остальные.
     LaunchedEffect(globalQuery, catalogs, catalogUrl) {
         val q = globalQuery.trim()
-        if (catalogUrl.isNotEmpty() || q.length < 2) {
-            globalResults = emptyList()
-            globalSearching = false
-            globalErrors = 0
-            return@LaunchedEffect
-        }
+        globalResults = emptyList()
+        globalSearching = false
+        globalErrors = 0
+        if (catalogUrl.isNotEmpty() || q.length < 2) return@LaunchedEffect
         delay(450)
         globalSearching = true
         try {
-            globalResults = emptyList()
-            globalErrors = 0
             val unique = LinkedHashMap<String, OpdsEntry>()
             val normalizedQuery = CoverFinder.norm(q)
+            fun publish(results: List<OpdsEntry>) {
+                for (book in results) {
+                    // Для веб-аудио сохраняем отдельные варианты источников.
+                    val key = if (AudioSources.bookPage(book) != null) book.id else
+                        CoverFinder.norm(book.title) + "|" +
+                            CoverFinder.norm(book.authors.firstOrNull().orEmpty())
+                    val prev = unique[key]
+                    unique[key] = if (prev == null) book else prev.copy(
+                        downloads = (prev.downloads + book.downloads).distinctBy { it.second },
+                        related = (prev.related + book.related).distinct(),
+                        coverUrl = prev.coverUrl ?: book.coverUrl,
+                        summary = prev.summary.ifBlank { book.summary },
+                    )
+                }
+                globalResults = unique.values.sortedByDescending { book ->
+                    val title = CoverFinder.norm(book.title)
+                    val author = CoverFinder.norm(book.authors.joinToString(" "))
+                    when {
+                        title == normalizedQuery -> 100
+                        title.startsWith(normalizedQuery) -> 80
+                        title.contains(normalizedQuery) -> 60
+                        author.contains(normalizedQuery) -> 40
+                        BookSearch.matches(q, book.authors.joinToString(" ")) -> 35
+                        else -> 0
+                    }
+                }
+            }
             supervisorScope {
-                catalogs.map { c ->
+                val opdsJobs = catalogs.map { c ->
                     launch {
                         try {
-                            val results = Opds.searchBooks(c, q)
-                            results.forEach { book ->
-                                val key = CoverFinder.norm(book.title) + "|" +
-                                    CoverFinder.norm(book.authors.firstOrNull().orEmpty())
-                                val prev = unique[key]
-                                unique[key] = if (prev == null) book else prev.copy(
-                                    downloads = (prev.downloads + book.downloads).distinctBy { it.second },
-                                    related = (prev.related + book.related).distinct(),
-                                    coverUrl = prev.coverUrl ?: book.coverUrl,
-                                    summary = prev.summary.ifBlank { book.summary },
-                                )
-                            }
-                            globalResults = unique.values.sortedByDescending { book ->
-                                val title = CoverFinder.norm(book.title)
-                                val author = CoverFinder.norm(book.authors.joinToString(" "))
-                                when {
-                                    title == normalizedQuery -> 100
-                                    title.startsWith(normalizedQuery) -> 80
-                                    title.contains(normalizedQuery) -> 60
-                                    author.contains(normalizedQuery) -> 40
-                                    BookSearch.matches(q, book.authors.joinToString(" ")) -> 35
-                                    else -> 0
-                                }
-                            }
+                            publish(Opds.searchBooks(c, q))
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
                             globalErrors++
                         }
                     }
-                }.forEach { it.join() }
+                }
+                val audioJobs = AudioSources.providers.map { provider ->
+                    launch {
+                        try {
+                            publish(AudioSources.search(provider, q))
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            globalErrors++
+                        }
+                    }
+                }
+                (opdsJobs + audioJobs).forEach { it.join() }
             }
         } finally {
             globalSearching = false
@@ -372,7 +386,7 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                 OutlinedTextField(
                     value = globalQuery,
                     onValueChange = { globalQuery = it },
-                    label = { Text("Искать во всех каталогах") },
+                    label = { Text("Искать книги и аудио во всех источниках") },
                     placeholder = { Text("Название книги или автор") },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
                     trailingIcon = {
@@ -414,6 +428,12 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
                             label = { Text("Литнет") },
                         )
                     }
+                    Text(
+                        "OPDS · KnigaHub · Aknigi24 · Abook",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                    )
                     if (globalSearching) {
                         LinearSearchProgress()
                     }
@@ -753,6 +773,10 @@ private fun BookRow(e: OpdsEntry, isDownloaded: Boolean, onClick: () -> Unit) {
             Text(e.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (isDownloaded) Text("Скачано", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary)
+            AudioSources.sourceName(e)?.let { source ->
+                Text("Аудио · $source", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
             if (e.authors.isNotEmpty()) {
                 Text(
                     e.authors.joinToString(", "),
@@ -797,6 +821,16 @@ private fun BookSheet(
     val repo = App.instance.repo
     val scope = rememberCoroutineScope()
     val author = e.authors.joinToString(", ")
+    val audioPage = AudioSources.bookPage(e)
+    var sourceFiles by remember(e.id) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var sourceFilesLoading by remember(e.id) { mutableStateOf(audioPage != null) }
+    LaunchedEffect(e.id) {
+        if (audioPage != null) {
+            sourceFilesLoading = true
+            sourceFiles = AudioSources.directFiles(e)
+            sourceFilesLoading = false
+        }
+    }
     val books by repo.dao.observeAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val existing = books.firstOrNull {
         CoverFinder.norm(it.title) == CoverFinder.norm(e.title) &&
@@ -840,6 +874,28 @@ private fun BookSheet(
                 }
             }
             Spacer(Modifier.height(16.dp))
+            if (audioPage != null) {
+                val downloadPage = AudioSources.downloadPage(e) ?: audioPage
+                Text(
+                    "Аудиокнига · ${AudioSources.sourceName(e) ?: "веб-каталог"}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (sourceFilesLoading) {
+                    LinearSearchProgress()
+                } else if (sourceFiles.isEmpty()) {
+                    Text(
+                        "Прямую ссылку на файл не удалось обнаружить. Скачивание доступно через страницу сайта во встроенном браузере.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Button(
+                    onClick = { onOpenBrowser(downloadPage) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text("Открыть скачивание") }
+                TextButton(onClick = { onOpenBrowser(audioPage) }) { Text("Страница книги") }
+            }
             if (existing != null) {
                 OutlinedButton(onClick = { onOpenBook(existing.id) }, modifier = Modifier.fillMaxWidth()) {
                     Text("Уже в библиотеке: ${BookStatus.label(existing.status)}")
@@ -872,23 +928,24 @@ private fun BookSheet(
             }
 
             // Можно получить текст и аудио из разных источников и объединить в одну запись.
-            val textFile = e.downloads.firstOrNull {
+            val availableFiles = (e.downloads + sourceFiles).distinctBy { it.second }
+            val textFile = availableFiles.firstOrNull {
                 val mime = it.first.lowercase()
                 val url = it.second.substringBefore('?').lowercase()
                 mime.contains("fb2") || mime.contains("epub") || mime.startsWith("text/") ||
                     mime.contains("wordprocessingml") || url.endsWith(".fb2") ||
                     url.endsWith(".epub") || url.endsWith(".txt") || url.endsWith(".fb2.zip")
             }
-            val audioFile = e.downloads.firstOrNull {
+            val audioFile = availableFiles.firstOrNull {
                 val mime = it.first.lowercase()
                 val url = it.second.substringBefore('?').lowercase()
-                mime.startsWith("audio/") || (e.id.startsWith("librivox:") && url.endsWith(".zip")) ||
+                mime.startsWith("audio/") || ((e.id.startsWith("librivox:") || audioPage != null) && url.endsWith(".zip")) ||
                     url.endsWith(".mp3") ||
                     url.endsWith(".m4b") || url.endsWith(".m4a") ||
                     url.endsWith(".ogg") || url.endsWith(".opus") ||
                     url.endsWith(".flac")
             }
-            val alternative = e.downloads.firstOrNull()
+            val alternative = availableFiles.firstOrNull()
             var dl by remember(e.id, e.title) { mutableStateOf<String?>(null) }
             fun downloadFiles(files: List<Pair<String, String>>) {
                 if (dl != null || files.isEmpty()) return
@@ -905,6 +962,14 @@ private fun BookSheet(
                                 downloaded.file, downloaded.name, downloaded.mime, bookId,
                             ) {}
                             bookId = result.bookId
+                        }
+                        if (existing == null && bookId != null && audioPage != null) {
+                            repo.dao.get(bookId)?.let { created ->
+                                repo.dao.update(created.copy(
+                                    title = e.title,
+                                    author = author.ifBlank { created.author },
+                                ))
+                            }
                         }
                     }
                     dl = outcome.fold({ "Добавлено в библиотеку" }, { ErrorText.ru(it, "Не удалось скачать") })
