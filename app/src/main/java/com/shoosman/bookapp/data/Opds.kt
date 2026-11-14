@@ -58,11 +58,10 @@ object Opds {
         "https://librivox.org/api/feed/audiobooks/?format=json&limit=50&sort_order=desc&coverart=1",
     )
 
-    /** Готовые каталоги для быстрого добавления. */
+    /** Готовые OPDS-каталоги; LibriVox больше не предлагается автоматически. */
     val presets = listOf(
         OpdsCatalog("Флибуста", "https://flibusta.is/opds"),
         OpdsCatalog("Project Gutenberg", "https://m.gutenberg.org/ebooks.opds/"),
-        libriVox,
     )
 
     fun catalogs(ctx: Context): List<OpdsCatalog> {
@@ -78,12 +77,12 @@ object Opds {
             } }
         }.getOrDefault(emptyList())
 
-        // Одна миграция: добавить источник аудио в существующие библиотеки,
-        // не возвращать его снова, если пользователь впоследствии удалит.
-        if (!p.getBoolean("librivox-migrated", false)) {
-            val result = if (saved.any { it.isLibriVox }) saved else saved + libriVox
-            saveCatalogs(ctx, result)
-            p.edit().putBoolean("librivox-migrated", true).apply()
+        // Однократный откат автоматически добавленного LibriVox.
+        // Не трогаем остальные OPDS-каталоги и настройки пользователя.
+        if (!p.getBoolean("librivox-removed", false)) {
+            val result = saved.filterNot { it.isLibriVox }
+            if (result.size != saved.size) saveCatalogs(ctx, result)
+            p.edit().putBoolean("librivox-removed", true).apply()
             return result
         }
         return saved
