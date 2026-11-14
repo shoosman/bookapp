@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
@@ -72,6 +73,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.data.AppSettings
+import com.shoosman.bookapp.player.PlayerConnection
+import com.shoosman.bookapp.player.PlayerUi
 import com.shoosman.bookapp.data.hasText
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
@@ -101,6 +104,9 @@ fun PlayerScreen(
     val anchors by repo.dao.observeAnchors(bookId).collectAsStateWithLifecycle(initialValue = emptyList())
     val s by player.ui.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    fun toggleCarMode() {
+        scope.launch { app.settings.update { it.copy(carMode = !it.carMode) } }
+    }
     val snackbar = remember { SnackbarHostState() }
 
     var content by remember { mutableStateOf<BookContent?>(null) }
@@ -170,7 +176,20 @@ fun PlayerScreen(
         )
     } ?: Modifier.background(bgColor)
     Box(Modifier.fillMaxSize().then(bgModifier)) {
-        if (b != null) {
+        if (b != null && settings.carMode) {
+            CarModePlayer(
+                title = b.title,
+                author = b.author,
+                s = s,
+                player = player,
+                settings = settings,
+                onBack = onBack,
+                onExit = ::toggleCarMode,
+                onChapters = { sheet = "chapters" },
+                onSleep = { sheet = "sleep" },
+                onSpeed = { sheet = "speed" },
+            )
+        } else if (b != null) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -353,6 +372,17 @@ fun PlayerScreen(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Row(
+                        Modifier.clickable { toggleCarMode() }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Filled.DirectionsCar, "Режим авто", Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Авто", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Spacer(Modifier.weight(1f))
                     val sleepOn = s.sleepLeftMs > 0 || s.sleepEndOfChapter
                     Row(
@@ -409,6 +439,152 @@ fun PlayerScreen(
 
         "sleep" -> ModalBottomSheet(onDismissRequest = { sheet = null }, dragHandle = null) {
             SleepSheet(s, player) { sheet = null }
+        }
+    }
+}
+
+/** Упрощённый экран для машины: крупные элементы, защита от обрезания слов включена. */
+@Composable
+private fun CarModePlayer(
+    title: String,
+    author: String,
+    s: PlayerUi,
+    player: PlayerConnection,
+    settings: AppSettings,
+    onBack: () -> Unit,
+    onExit: () -> Unit,
+    onChapters: () -> Unit,
+    onSleep: () -> Unit,
+    onSpeed: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+            .padding(horizontal = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RoundButton(Icons.Filled.KeyboardArrowDown, "Свернуть", onBack)
+            Spacer(Modifier.width(12.dp))
+            Icon(Icons.Filled.DirectionsCar, null, Modifier.size(26.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Text("Режим авто", style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.weight(1f))
+        Text(title, style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold, maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            overflow = TextOverflow.Ellipsis)
+        if (author.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(author, style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(28.dp))
+        Text(
+            s.chapterTitle.ifBlank { title },
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 2,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.clickable(onClick = onChapters),
+        )
+        Spacer(Modifier.height(12.dp))
+        var drag by remember { mutableStateOf<Float?>(null) }
+        val dur = s.chapterDurMs.coerceAtLeast(1L)
+        val pos = drag?.toLong() ?: s.chapterPosMs
+        Slider(
+            value = (drag ?: s.chapterPosMs.toFloat()).coerceIn(0f, dur.toFloat()),
+            valueRange = 0f..dur.toFloat(),
+            onValueChange = { drag = it },
+            onValueChangeFinished = {
+                drag?.let { player.seekInChapter(it.toLong()) }
+                drag = null
+            },
+            colors = SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            Text(fmtTime(pos), style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.weight(1f))
+            Text("- " + fmtTime((s.chapterDurMs - pos).coerceAtLeast(0)),
+                style = MaterialTheme.typography.bodyLarge)
+        }
+        Spacer(Modifier.height(20.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { player.previousChapter() }, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Filled.SkipPrevious, "Предыдущая глава", Modifier.size(32.dp))
+            }
+            SeekButton(settings.skipBackSec, forward = false) {
+                player.skip(-settings.skipBackSec * 1000L)
+            }
+            Surface(
+                onClick = { player.toggle() },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.size(86.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (s.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        if (s.isPlaying) "Пауза" else "Играть",
+                        Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.background,
+                    )
+                }
+            }
+            SeekButton(settings.skipForwardSec, forward = true) {
+                player.skip(settings.skipForwardSec * 1000L)
+            }
+            IconButton(
+                onClick = { player.nextChapter() },
+                enabled = s.chapter < s.chapterCount - 1,
+                modifier = Modifier.size(44.dp),
+            ) {
+                Icon(Icons.Filled.SkipNext, "Следующая глава", Modifier.size(32.dp))
+            }
+        }
+        if (s.error != null) {
+            Text(s.error, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+        Spacer(Modifier.weight(1f))
+        Text("Защита Bluetooth от обрезания слов включена",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                Modifier.clickable(onClick = onExit).padding(horizontal = 6.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.DirectionsCar, "Выключить режим авто", Modifier.size(26.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text("Выйти", style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onSleep) {
+                Icon(Icons.Outlined.Timer, "Таймер сна")
+            }
+            Text(
+                "${fmtSpeed(s.speed)}x",
+                fontSize = 20.sp,
+                modifier = Modifier.clickable(onClick = onSpeed)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
         }
     }
 }
