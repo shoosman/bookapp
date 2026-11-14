@@ -113,7 +113,7 @@ object AudioSources {
         for (link in doc.select("a[href]")) {
             val bookUrl = abs(url, link.attr("href")) ?: continue
             if (!matchesHost(bookUrl, provider.host) || !isBookUrl(provider, bookUrl)) continue
-            val rawTitle = link.text().trim().replace(Regex("""\\s+"""), " ")
+            val rawTitle = link.text().trim().replace(Regex("""\s+"""), " ")
             if (rawTitle.length !in 3..180) continue
             val author = pageAuthor ?: ancestorAuthor(link)
             if (!BookSearch.matches(q, rawTitle, author)) continue
