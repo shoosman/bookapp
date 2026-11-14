@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -186,6 +186,7 @@ fun PlayerScreen(
                 onBack = onBack,
                 onExit = ::toggleCarMode,
                 onChapters = { sheet = "chapters" },
+                onBookmark = ::addBookmark,
                 onSleep = { sheet = "sleep" },
                 onSpeed = { sheet = "speed" },
             )
@@ -268,9 +269,7 @@ fun PlayerScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { addBookmark() }) {
-                        Icon(Icons.Outlined.BookmarkBorder, "Закладка")
-                    }
+                    BookmarkAction(onClick = ::addBookmark, enabled = active)
                 }
 
                 // Таймлайн главы
@@ -454,6 +453,7 @@ private fun CarModePlayer(
     onBack: () -> Unit,
     onExit: () -> Unit,
     onChapters: () -> Unit,
+    onBookmark: () -> Unit,
     onSleep: () -> Unit,
     onSpeed: () -> Unit,
 ) {
@@ -576,6 +576,7 @@ private fun CarModePlayer(
                     color = MaterialTheme.colorScheme.primary)
             }
             Spacer(Modifier.weight(1f))
+            BookmarkAction(onClick = onBookmark, size = 48.dp, enabled = s.bookId >= 0)
             IconButton(onClick = onSleep) {
                 Icon(Icons.Outlined.Timer, "Таймер сна")
             }
@@ -584,6 +585,32 @@ private fun CarModePlayer(
                 fontSize = 20.sp,
                 modifier = Modifier.clickable(onClick = onSpeed)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+/** Одна аккуратно центрированная кнопка закладки для обычного и автомобильного плеера. */
+@Composable
+private fun BookmarkAction(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    size: androidx.compose.ui.unit.Dp = 44.dp,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.size(size),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Outlined.BookmarkAdd,
+                contentDescription = "Добавить закладку",
+                modifier = Modifier.size(24.dp),
             )
         }
     }
