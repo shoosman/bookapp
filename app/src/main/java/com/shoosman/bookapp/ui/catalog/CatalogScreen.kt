@@ -896,8 +896,11 @@ private fun BookSheet(
                     onClick = { onDismiss(); onOpenBrowser(downloadPage) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
-                    Text(if (AudioSources.sourceName(e) == "Abook") "Открыть торрент на сайте"
-                         else "Открыть скачивание")
+                    Text(when (AudioSources.sourceName(e)) {
+                        "Abook" -> "Открыть торрент на сайте"
+                        "KnigaHub" -> "Открыть запись на сайте"
+                        else -> "Открыть скачивание"
+                    })
                 }
                 TextButton(onClick = { onDismiss(); onOpenBrowser(audioPage) }) { Text("Страница книги") }
             }
