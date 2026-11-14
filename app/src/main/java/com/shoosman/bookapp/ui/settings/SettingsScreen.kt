@@ -133,29 +133,15 @@ fun SettingsScreen(settings: AppSettings, onBack: (() -> Unit)?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    SectionTitle("Bluetooth-аудио")
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            scope.launch { store.update { it.copy(preventWordClipping = !it.preventWordClipping) } }
-                        }.padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Не обрезать начало слов", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Для магнитол, которые отключают звук в паузах. " +
-                                    "Подмешивается очень тихий шум, только во время воспроизведения в Чтеце.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = settings.preventWordClipping,
-                            onCheckedChange = { checked ->
-                                scope.launch { store.update { it.copy(preventWordClipping = checked) } }
-                            },
-                        )
-                    }
+                    SectionTitle("Режим авто")
+                    Text(
+                        "Включается кнопкой с машинкой внизу аудиоплеера. " +
+                            "Показывает крупные кнопки и включает защиту от обрезания слов по Bluetooth. " +
+                            "При выключении обычное воспроизведение не меняется.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
 
                 "library" -> {
