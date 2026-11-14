@@ -841,6 +841,21 @@ private fun BookSheet(
     var adding by remember { mutableStateOf(false) }
     var litres by remember { mutableStateOf<String?>(null) }
     var litresChecked by remember { mutableStateOf(false) }
+    var replacementAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun askBeforeReplacing(files: List<Pair<String, String>>, action: () -> Unit) {
+        val hasNewAudio = files.any { (type, url) ->
+            type.startsWith("audio/") || url.substringBefore('?').endsWith(".zip", true)
+        }
+        val hasNewText = files.any { (type, url) ->
+            type.contains("epub") || type.contains("fb2") ||
+                url.substringBefore('?').endsWith(".epub", true) ||
+                url.substringBefore('?').endsWith(".fb2", true)
+        }
+        if ((existing?.hasAudio == true && hasNewAudio) ||
+            (existing?.hasText == true && hasNewText)) {
+            replacementAction = action
+        } else action()
+    }
 
     LaunchedEffect(e.id) {
         litres = withContext(Dispatchers.IO) { runCatching { CoverFinder.litresPage(e.title, author) }.getOrNull() }
@@ -1017,35 +1032,38 @@ private fun BookSheet(
             if (audioTracks.size > 1) {
                 Button(
                     enabled = dl == null,
-                    onClick = { downloadAllAudioTracks(audioTracks) },
+                    onClick = { askBeforeReplacing(audioTracks) { downloadAllAudioTracks(audioTracks) } },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text(dl ?: "Скачать все ${audioTracks.size} глав") }
             }
             if (textFile != null && audioFile != null) {
                 Button(
                     enabled = dl == null,
-                    onClick = { downloadFiles(listOf(textFile, audioFile)) },
+                    onClick = {
+                        val files = listOf(textFile, audioFile)
+                        askBeforeReplacing(files) { downloadFiles(files) }
+                    },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text(dl ?: "Скачать текст и аудио") }
             }
             if (textFile != null) {
                 OutlinedButton(
                     enabled = dl == null,
-                    onClick = { downloadFiles(listOf(textFile)) },
+                    onClick = { askBeforeReplacing(listOf(textFile)) { downloadFiles(listOf(textFile)) } },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Скачать текст") }
             }
             if (audioFile != null && audioTracks.size <= 1) {
                 OutlinedButton(
                     enabled = dl == null,
-                    onClick = { downloadFiles(listOf(audioFile)) },
+                    onClick = { askBeforeReplacing(listOf(audioFile)) { downloadFiles(listOf(audioFile)) } },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Скачать аудио") }
             }
             if (textFile == null && audioFile == null && alternative != null) {
                 OutlinedButton(
                     enabled = dl == null,
-                    onClick = { downloadFiles(listOf(alternative)) },
+                    onClick = { askBeforeReplacing(listOf(alternative)) { downloadFiles(listOf(alternative)) } },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Скачать доступный файл") }
             }
@@ -1076,6 +1094,23 @@ private fun BookSheet(
                 }
             }
         }
+    }
+    if (replacementAction != null) {
+        AlertDialog(
+            onDismissRequest = { replacementAction = null },
+            title = { Text("Заменить скачанные файлы?") },
+            text = { Text("У этой книги уже есть файлы. Новая загрузка заменит соответствующие текст или аудиодорожки. Продолжить?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val action = replacementAction
+                    replacementAction = null
+                    action?.invoke()
+                }) { Text("Заменить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { replacementAction = null }) { Text("Отмена") }
+            },
+        )
     }
 }
 
