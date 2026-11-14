@@ -121,7 +121,8 @@ fun CatalogScreen(onOpenBrowser: (String) -> Unit, onOpenBook: (Long) -> Unit) {
             entry.authors.any { author -> CoverFinder.norm(book.author).contains(CoverFinder.norm(author).split(' ').lastOrNull().orEmpty()) }
     }
     var catalogs by remember { mutableStateOf(Opds.catalogs(ctx)) }
-    var catalogUrl by rememberSaveable { mutableStateOf(if (Opds.catalogs(ctx).size == 1) Opds.catalogs(ctx)[0].url else "") }
+    // Всегда открываем общий поиск: одиночная Флибуста не должна скрывать аудиоисточники.
+    var catalogUrl by rememberSaveable { mutableStateOf("") }
     val catalog = catalogs.firstOrNull { it.url == catalogUrl }
     val stack = rememberSaveable(
         saver = androidx.compose.runtime.saveable.listSaver<androidx.compose.runtime.snapshots.SnapshotStateList<String>, String>(
