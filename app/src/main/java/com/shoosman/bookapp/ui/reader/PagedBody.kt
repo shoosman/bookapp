@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.shoosman.bookapp.data.AppSettings
@@ -53,6 +54,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+
+/** Выбранное место в тексте: начало именно строки под пальцем. */
+data class ReaderTextHit(val paragraph: Int, val charPos: Int)
+
+private class TextHit(val paragraph: Int, val from: Int, val length: Int) {
+    var bounds: Rect? = null
+    var layout: TextLayoutResult? = null
+}
 
 private class PagePos(val section: Int, val page: Int, val pages: List<Page>) {
     val key: Long get() = section.toLong() * 1_000_000 + page
@@ -75,7 +84,7 @@ fun PagedBody(
     chapterTitle: String,
     onCharChange: (Int) -> Unit,
     onTapCenter: () -> Unit,
-    onLongPress: (Int) -> Unit,
+    onLongPress: (ReaderTextHit) -> Unit,
     onUserTurn: () -> Unit,
     onBrightnessDelta: (Float) -> Unit,
     onBrightnessEnd: () -> Unit,
@@ -94,14 +103,12 @@ fun PagedBody(
 
     // Последнее известное место — чтобы не потерять его при смене шрифта или поворота экрана.
     var anchorChar by remember { mutableIntStateOf(initialChar) }
-    val hitAreas = remember { HashMap<Int, Rect>() }
-    var rootOrigin by remember { mutableStateOf(Offset.Zero) }
+    // Храним координаты каждого фрагмента отдельно: один абзац может занимать
+    // несколько страниц или несколько Text на одной странице.
+    val hitAreas = remember { HashMap<Pair<Long, Int>, TextHit>() }
+    var gestureOrigin by remember { mutableStateOf(Offset.Zero) }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { rootOrigin = it.positionInRoot() },
-    ) {
+    Box(Modifier.fillMaxSize()) {
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
@@ -174,6 +181,9 @@ fun PagedBody(
             Box(
                 Modifier
                     .fillMaxSize()
+                    // Координаты детектора касаний привязаны к этой ВНУТРЕННЕЙ
+                    // области, а не к внешней Box без отступов.
+                    .onGloballyPositioned { gestureOrigin = it.positionInRoot() }
                     .pointerInput(paginator) {
                         detectTapGestures(
                             onTap = { o ->
@@ -185,8 +195,18 @@ fun PagedBody(
                                 }
                             },
                             onLongPress = { o ->
-                                val point = o + rootOrigin
-                                hitAreas.entries.firstOrNull { it.value.contains(point) }?.let { longPress(it.key) }
+                                val p = pos ?: return@detectTapGestures
+                                val point = o + gestureOrigin
+                                val hit = hitAreas.entries.firstOrNull { (key, h) ->
+                                    key.first == p.key && h.bounds?.contains(point) == true && h.layout != null
+                                }?.value ?: return@detectTapGestures
+                                val bounds = hit.bounds ?: return@detectTapGestures
+                                val layout = hit.layout ?: return@detectTapGestures
+                                // Попадание в конкретную строку, а не в начало абзаца.
+                                val line = layout.getLineForVerticalPosition(point.y - bounds.top)
+                                val localChar = layout.getLineStart(line).coerceIn(0, hit.length)
+                                val paragraphStart = c.paragraphs[hit.paragraph].start
+                                longPress(ReaderTextHit(hit.paragraph, paragraphStart + hit.from + localChar))
                             },
                         )
                     }
@@ -228,7 +248,20 @@ fun PagedBody(
                         },
                         label = "page",
                     ) { p ->
-                        PageContent(c, p.pages[p.page], settings, audioPara) { para, rect -> hitAreas[para] = rect }
+                        PageContent(c, p.pages[p.page], settings, audioPara,
+                            onBounds = { index, slice, bounds ->
+                                val hit = hitAreas.getOrPut(p.key to index) {
+                                    TextHit(slice.para, slice.from, slice.to - slice.from)
+                                }
+                                hit.bounds = bounds
+                            },
+                            onLayout = { index, slice, layout ->
+                                val hit = hitAreas.getOrPut(p.key to index) {
+                                    TextHit(slice.para, slice.from, slice.to - slice.from)
+                                }
+                                hit.layout = layout
+                            },
+                        )
                     }
                 }
             }
@@ -266,28 +299,41 @@ private fun PageContent(
     page: Page,
     s: AppSettings,
     audioPara: Int,
-    register: (Int, Rect) -> Unit,
+    onBounds: (Int, Slice, Rect) -> Unit,
+    onLayout: (Int, Slice, TextLayoutResult) -> Unit,
 ) {
     val color = MaterialTheme.colorScheme.onBackground
     val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f)
     Column(Modifier.fillMaxSize()) {
-        for (slice in page.slices) {
+        for ((index, slice) in page.slices.withIndex()) {
             val p = c.paragraphs[slice.para]
             val look = paraLook(p.kind, s, color, continuation = slice.from > 0)
             val endsParagraph = slice.to >= p.text.length
             var text = p.text.substring(slice.from, slice.to)
             if (slice.hyphen) text += "-"
-            Text(
-                text,
-                style = look.style,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = look.top, bottom = if (endsParagraph) look.bottom else 0.dp, start = look.start)
-                    .then(
-                        if (slice.para == audioPara) Modifier.background(highlightColor, RoundedCornerShape(4.dp)) else Modifier,
-                    )
-                    .onGloballyPositioned { register(slice.para, it.boundsInRoot()) },
-            )
+            // Отступы вынесены из Text: bounds текста и TextLayoutResult теперь
+            // имеют один origin, без скрытого смещения по Y.
+            Box(
+                Modifier.fillMaxWidth().padding(
+                    top = look.top,
+                    bottom = if (endsParagraph) look.bottom else 0.dp,
+                    start = look.start,
+                ),
+            ) {
+                Text(
+                    text,
+                    style = look.style,
+                    onTextLayout = { layout -> onLayout(index, slice, layout) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (slice.para == audioPara) Modifier.background(highlightColor, RoundedCornerShape(4.dp)) else Modifier,
+                        )
+                        .onGloballyPositioned { coordinates ->
+                            onBounds(index, slice, coordinates.boundsInRoot())
+                        },
+                )
+            }
         }
     }
 }
