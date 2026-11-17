@@ -145,6 +145,8 @@ fun ReaderScreen(
     }
 
     LaunchedEffect(bookId) {
+        // Обычное открытие из библиотеки/главной — не продолжение перехода из аудиоплеера.
+        if (startPos < 0) ListenHandoff.clear()
         val b = repo.book(bookId) ?: return@LaunchedEffect
         CrashLog.note("Читалка: открыта книга $bookId (${b.textFormat})")
         try {
