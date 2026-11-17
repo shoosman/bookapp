@@ -1,6 +1,8 @@
 package com.shoosman.bookapp.ui.reader
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -27,6 +29,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.text.BookContent
@@ -44,7 +48,7 @@ fun ScrollBody(
     isPlaying: Boolean,
     onCharChange: (Int) -> Unit,
     onTap: () -> Unit,
-    onLongPress: (Int) -> Unit,
+    onLongPress: (ReaderTextHit) -> Unit,
     onUserScroll: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -88,7 +92,7 @@ fun ScrollBody(
         ),
     ) {
         itemsIndexed(c.paragraphs) { i, p ->
-            ScrollParagraph(i, p.text, p.kind, settings, i == audioPara, onTap, onLongPress)
+            ScrollParagraph(i, p.start, p.text, p.kind, settings, i == audioPara, onTap, onLongPress)
         }
     }
 }
@@ -97,27 +101,38 @@ fun ScrollBody(
 @Composable
 private fun ScrollParagraph(
     index: Int,
+    startChar: Int,
     text: String,
     kind: com.shoosman.bookapp.text.ParaKind,
     s: AppSettings,
     highlighted: Boolean,
     onTap: () -> Unit,
-    onLongPress: (Int) -> Unit,
+    onLongPress: (ReaderTextHit) -> Unit,
 ) {
     val look = paraLook(kind, s, MaterialTheme.colorScheme.onBackground)
     val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f)
-    Text(
-        text,
-        style = look.style,
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onTap,
-                onLongClick = { onLongPress(index) },
-            )
-            .padding(top = look.top, bottom = look.bottom, start = look.start)
-            .then(if (highlighted) Modifier.background(highlightColor, RoundedCornerShape(4.dp)) else Modifier),
-    )
+    val tap by rememberUpdatedState(onTap)
+    val longPress by rememberUpdatedState(onLongPress)
+    var textLayout by remember(index, text) { mutableStateOf<TextLayoutResult?>(null) }
+
+    Box(Modifier.fillMaxWidth().padding(top = look.top, bottom = look.bottom, start = look.start)) {
+        Text(
+            text,
+            style = look.style,
+            onTextLayout = { textLayout = it },
+            modifier = Modifier.fillMaxWidth()
+                .then(if (highlighted) Modifier.background(highlightColor, RoundedCornerShape(4.dp)) else Modifier)
+                .pointerInput(index, text) {
+                    detectTapGestures(
+                        onTap = { tap() },
+                        onLongPress = { offset ->
+                            val layout = textLayout ?: return@detectTapGestures
+                            val line = layout.getLineForVerticalPosition(offset.y)
+                            val lineStart = layout.getLineStart(line).coerceIn(0, text.length)
+                            longPress(ReaderTextHit(index, startChar + lineStart))
+                        },
+                    )
+                },
+        )
+    }
 }
