@@ -49,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookStatus
+import com.shoosman.bookapp.data.ReadingMode
 import com.shoosman.bookapp.data.audioProgress
 import com.shoosman.bookapp.data.hasAudio
 import com.shoosman.bookapp.data.hasText
@@ -146,12 +148,32 @@ private fun ContinueCard(
     onRead: (Long) -> Unit,
     onListen: (Long) -> Unit,
 ) {
+    val ctx = LocalContext.current
+    fun resumeLastMode() {
+        when (ReadingMode.get(ctx, book.id)) {
+            ReadingMode.TEXT -> when {
+                book.hasText -> onRead(book.id)
+                book.hasAudio -> onListen(book.id)
+                else -> onOpenBook(book.id)
+            }
+            ReadingMode.AUDIO -> when {
+                book.hasAudio -> onListen(book.id)
+                book.hasText -> onRead(book.id)
+                else -> onOpenBook(book.id)
+            }
+            else -> when {
+                book.hasText -> onRead(book.id)
+                book.hasAudio -> onListen(book.id)
+                else -> onOpenBook(book.id)
+            }
+        }
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable { onOpenBook(book.id) },
+            .clickable { resumeLastMode() },
     ) {
         Row(Modifier.padding(16.dp)) {
             Cover(book.title, book.author, book.coverPath, Modifier.size(92.dp, 134.dp))
