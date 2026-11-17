@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.data.AppSettings
+import com.shoosman.bookapp.data.ReadingMode
 import com.shoosman.bookapp.player.PlayerConnection
 import com.shoosman.bookapp.player.PlayerUi
 import com.shoosman.bookapp.data.hasText
@@ -97,6 +98,7 @@ fun PlayerScreen(
     onReadAt: (Int) -> Unit,
 ) {
     val app = App.instance
+    val modeContext = androidx.compose.ui.platform.LocalContext.current
     val player = app.player
     val repo = app.repo
     val book by repo.dao.observe(bookId).collectAsStateWithLifecycle(initialValue = null)
@@ -113,6 +115,7 @@ fun PlayerScreen(
     LaunchedEffect(bookId) {
         val fresh = player.ui.value.bookId != bookId
         player.open(bookId, if (startMs >= 0) startMs else null, play = fresh || startMs >= 0)
+        ReadingMode.set(modeContext, bookId, ReadingMode.AUDIO)
         val b = repo.book(bookId)
         if (b != null && b.hasText) content = runCatching { repo.content(b) }.getOrNull()
     }
