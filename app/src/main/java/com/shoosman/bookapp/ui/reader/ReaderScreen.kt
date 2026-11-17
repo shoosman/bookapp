@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,22 +37,26 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationSearching
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
@@ -62,6 +67,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,11 +96,14 @@ import com.shoosman.bookapp.data.AnchorEntity
 import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookmarkEntity
+import com.shoosman.bookapp.data.ReadingMode
 import com.shoosman.bookapp.data.TrackEntity
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
 import com.shoosman.bookapp.ui.common.fmtTime
 import com.shoosman.bookapp.ui.settings.TextSettingsPanel
+import com.shoosman.bookapp.ui.theme.isDarkTheme
+import com.shoosman.bookapp.ui.theme.schemeFor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -111,6 +120,7 @@ fun ReaderScreen(
     onOpenPlayer: (Long) -> Unit,
 ) {
     val repo = App.instance.repo
+    val readerCtx = LocalContext.current
     val book by repo.dao.observe(bookId).collectAsStateWithLifecycle(initialValue = null)
     val tracks by repo.dao.observeTracks(bookId).collectAsStateWithLifecycle(initialValue = emptyList())
     val anchors by repo.dao.observeAnchors(bookId).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -141,22 +151,30 @@ fun ReaderScreen(
         } catch (e: Exception) {
             loadError = "Не удалось открыть текст. " + ErrorText.ru(e)
         }
+        if (content != null) ReadingMode.set(readerCtx, bookId, ReadingMode.TEXT)
         repo.markOpened(bookId)
     }
 
     val c = content
     val b = book
-    if (c == null || b == null) {
-        Box(
-            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-            contentAlignment = Alignment.Center,
-        ) {
-            val err = loadError
-            if (err != null) Text(err, modifier = Modifier.padding(32.dp)) else CircularProgressIndicator()
+    // Независимая цветовая схема для текста, без смены темы всего приложения.
+    val readerTheme = settings.readerTheme.takeIf { it == "light" || it == "dark" } ?: settings.theme
+    val readerColors = schemeFor(readerTheme, settings.accent)
+    MaterialTheme(colorScheme = readerColors) {
+        CompositionLocalProvider(LocalContentColor provides readerColors.onBackground) {
+            if (c == null || b == null) {
+                Box(
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val err = loadError
+                    if (err != null) Text(err, modifier = Modifier.padding(32.dp)) else CircularProgressIndicator()
+                }
+            } else {
+                ReaderContent(b, c, tracks, anchors, bookmarks, startPos, settings, onBack, onOpenPlayer)
+            }
         }
-        return
     }
-    ReaderContent(b, c, tracks, anchors, bookmarks, startPos, settings, onBack, onOpenPlayer)
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -220,6 +238,14 @@ private fun ReaderContent(
     val curPara = c.paragraphAt(curChar)
     val curChapter = c.chapterAt(curChar)
     val chapterTitle = c.chapters.getOrNull(curChapter)?.title.orEmpty()
+    val readerDark = when (settings.readerTheme) {
+        "dark" -> true
+        "light" -> false
+        else -> isDarkTheme(settings.theme, isSystemInDarkTheme())
+    }
+    fun toggleReaderTheme() {
+        scope.launch { app.settings.update { it.copy(readerTheme = if (readerDark) "light" else "dark") } }
+    }
 
     // Где сейчас звучит аудио.
     // Текст и аудио — разные режимы: в читалке аудио не играет и не подсвечивается.
@@ -237,6 +263,7 @@ private fun ReaderContent(
     val activity = remember(ctx) { ctx.findActivity() }
     var brightness by remember { mutableFloatStateOf(settings.brightness) }
     var brightnessHint by remember { mutableStateOf(false) }
+    var brightnessHintVersion by remember { mutableIntStateOf(0) }
     LaunchedEffect(settings.brightness) { brightness = settings.brightness }
     LaunchedEffect(brightness) {
         activity?.window?.let { w ->
@@ -252,9 +279,11 @@ private fun ReaderContent(
             }
         }
     }
-    LaunchedEffect(brightnessHint) {
+    // Сбрасываем таймер при КАЖДОМ движении, а не только первом показе.
+    // Защита от зависшей подсказки при прерывании жеста и повторных свайпах.
+    LaunchedEffect(brightnessHintVersion) {
         if (brightnessHint) {
-            delay(1200)
+            delay(850)
             brightnessHint = false
         }
     }
@@ -330,8 +359,10 @@ private fun ReaderContent(
                         val base = if (brightness < 0) systemBrightness() else brightness
                         brightness = (base + d * 1.3f).coerceIn(0.02f, 1f)
                         brightnessHint = true
+                        brightnessHintVersion++
                     },
                     onBrightnessEnd = {
+                        brightnessHintVersion++
                         val v = brightness
                         scope.launch { app.settings.update { it.copy(brightness = v) } }
                     },
@@ -391,6 +422,10 @@ private fun ReaderContent(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                    IconButton(onClick = ::toggleReaderTheme) {
+                        Icon(if (readerDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                            if (readerDark) "Светлая тема" else "Тёмная тема")
                     }
                     IconButton(onClick = { sheet = "toc" }) { Icon(Icons.AutoMirrored.Filled.List, "Оглавление") }
                     IconButton(onClick = { addBookmark(curPara) }) { Icon(Icons.Filled.BookmarkAdd, "Добавить закладку") }
@@ -541,7 +576,19 @@ private fun ReaderContent(
         }
 
         "text" -> ModalBottomSheet(onDismissRequest = { sheet = null }) {
-            TextSettingsPanel(settings, Modifier.padding(horizontal = 24.dp))
+            Column(Modifier.padding(horizontal = 24.dp)) {
+                Text("Тема читалки", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("follow" to "Как в приложении", "light" to "Светлая", "dark" to "Тёмная").forEach { (key, label) ->
+                        FilterChip(
+                            selected = settings.readerTheme == key,
+                            onClick = { scope.launch { app.settings.update { it.copy(readerTheme = key) } } },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                TextSettingsPanel(settings, showTheme = false)
+            }
             Spacer(Modifier.height(32.dp))
         }
     }
