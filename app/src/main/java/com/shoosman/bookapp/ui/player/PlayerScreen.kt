@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shoosman.bookapp.App
 import com.shoosman.bookapp.data.AppSettings
+import com.shoosman.bookapp.data.BookmarkEntity
 import com.shoosman.bookapp.data.ReadingMode
 import com.shoosman.bookapp.player.PlayerConnection
 import com.shoosman.bookapp.player.PlayerUi
@@ -190,6 +191,7 @@ fun PlayerScreen(
                 onExit = ::toggleCarMode,
                 onChapters = { sheet = "chapters" },
                 onBookmark = ::addBookmark,
+                bookmarks = bookmarks,
                 onSleep = { sheet = "sleep" },
                 onSpeed = { sheet = "speed" },
             )
@@ -290,25 +292,7 @@ fun PlayerScreen(
                     colors = SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
                     modifier = Modifier.padding(top = 4.dp),
                 )
-                // Закладки этой главы — метки под линией; нажатие — перейти к закладке
-                val marks = bookmarks.filter { it.audioMs >= s.chapterStartMs && it.audioMs < s.chapterStartMs + dur && it.audioMs >= 0 }
-                if (marks.isNotEmpty()) {
-                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().height(18.dp)) {
-                        val track = maxWidth - 20.dp // у слайдера по 10 dp отступа на бегунок
-                        marks.forEach { bm ->
-                            val frac = ((bm.audioMs - s.chapterStartMs).toFloat() / dur).coerceIn(0f, 1f)
-                            Icon(
-                                Icons.Filled.Bookmark,
-                                "Закладка: ${bm.snippet.take(40)}",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .offset(x = 10.dp + track * frac - 8.dp, y = (-6).dp)
-                                    .size(16.dp)
-                                    .clickable { player.seekInChapter(bm.audioMs - s.chapterStartMs) },
-                            )
-                        }
-                    }
-                }
+                ChapterBookmarkMarkers(bookmarks, s, player)
                 Row(Modifier.fillMaxWidth()) {
                     Text(fmtTime(shownPos), style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.weight(1f))
@@ -457,6 +441,7 @@ private fun CarModePlayer(
     onExit: () -> Unit,
     onChapters: () -> Unit,
     onBookmark: () -> Unit,
+    bookmarks: List<BookmarkEntity>,
     onSleep: () -> Unit,
     onSpeed: () -> Unit,
 ) {
@@ -510,6 +495,7 @@ private fun CarModePlayer(
             },
             colors = SliderDefaults.colors(inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
         )
+        ChapterBookmarkMarkers(bookmarks, s, player)
         Row(Modifier.fillMaxWidth()) {
             Text(fmtTime(pos), style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.weight(1f))
@@ -589,6 +575,46 @@ private fun CarModePlayer(
                 modifier = Modifier.clickable(onClick = onSpeed)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             )
+        }
+    }
+}
+
+/** Метки закладок текущей главы под ползунком в обоих режимах плеера. */
+@Composable
+private fun ChapterBookmarkMarkers(
+    bookmarks: List<BookmarkEntity>,
+    s: PlayerUi,
+    player: PlayerConnection,
+) {
+    if (s.chapterDurMs <= 0L) return
+    val chapterStart = s.chapterStartMs
+    val chapterEnd = chapterStart + s.chapterDurMs
+    val visibleMarks = remember(bookmarks, chapterStart, chapterEnd) {
+        bookmarks.filter { !it.deleted && it.audioMs >= chapterStart && it.audioMs < chapterEnd }
+    }
+    if (visibleMarks.isEmpty()) return
+
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        Modifier.fillMaxWidth().height(22.dp),
+    ) {
+        // Стандартный Slider оставляет примерно 10 dp у каждого края под бегунок.
+        val track = maxWidth - 20.dp
+        visibleMarks.forEach { bm ->
+            val fraction = ((bm.audioMs - chapterStart).toFloat() / s.chapterDurMs)
+                .coerceIn(0f, 1f)
+            Box(
+                Modifier.offset(x = 10.dp + track * fraction - 12.dp)
+                    .size(24.dp)
+                    .clickable { player.seekInChapter(bm.audioMs - chapterStart) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Bookmark,
+                    contentDescription = "Перейти к закладке: ${bm.snippet.take(40)}",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }
