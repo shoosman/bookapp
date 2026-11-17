@@ -97,6 +97,7 @@ import com.shoosman.bookapp.data.AppSettings
 import com.shoosman.bookapp.data.BookEntity
 import com.shoosman.bookapp.data.BookmarkEntity
 import com.shoosman.bookapp.data.ReadingMode
+import com.shoosman.bookapp.player.ListenHandoff
 import com.shoosman.bookapp.data.TrackEntity
 import com.shoosman.bookapp.sync.SyncMapper
 import com.shoosman.bookapp.text.BookContent
@@ -224,6 +225,8 @@ private fun ReaderContent(
     var curChar by rememberSaveable { mutableIntStateOf(if (startPos >= 0) startPos else book.readPos) }
     val jumps = remember { MutableSharedFlow<Int>(extraBufferCapacity = 4) }
     fun jumpTo(char: Int) {
+        // Это явный переход, в отличие от автоматической переразметки страницы.
+        ListenHandoff.invalidate(bookId)
         follow = false
         jumps.tryEmit(char.coerceIn(0, c.totalChars))
     }
@@ -293,20 +296,23 @@ private fun ReaderContent(
 
     fun listenFrom(i: Int) {
         val m = mapper ?: return
+        // Выбор конкретного абзаца должен использовать синхронизацию, а не старый handoff.
+        ListenHandoff.clear()
         val ms = m.msAt(c.paragraphs[i].start)
-        CrashLog.note("Читалка: переключение на аудио с абзаца $i (${fmtTime(ms)})")
+        CrashLog.note("Читалка: переход к аудио с выбранного абзаца $i (${fmtTime(ms)})")
         repo.appScope.launch { repo.saveReadPos(bookId, c.paragraphs[i].start) }
         onOpenPlayer(ms)
     }
 
-    /** Кнопка «слушать»: если страница та же, с которой пришли из аудио, — продолжаем ровно с того места. */
+    /** Кнопка «слушать»: без ручного листания возвращаемся на исходную миллисекунду. */
     fun backToAudio() {
-        val exact = com.shoosman.bookapp.player.ListenHandoff.resumeMs(bookId, curChar)
+        val exact = ListenHandoff.consumeResumeMs(bookId)
         if (exact != null) {
-            CrashLog.note("Читалка: возврат к аудио на то же место (${fmtTime(exact)})")
+            CrashLog.note("Читалка: точный возврат в аудио (${fmtTime(exact)}, без пересчёта по тексту)")
             repo.appScope.launch { repo.saveReadPos(bookId, curChar) }
             onOpenPlayer(exact)
         } else {
+            CrashLog.note("Читалка: место в тексте изменено, используем приближённую синхронизацию")
             listenFrom(curPara)
         }
     }
@@ -335,6 +341,7 @@ private fun ReaderContent(
     }
 
     fun userMoved() {
+        ListenHandoff.invalidate(bookId)
         if (audioActive && ps.isPlaying) follow = false
     }
 
