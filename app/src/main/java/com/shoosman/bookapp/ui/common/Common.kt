@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.shoosman.bookapp.App
+import com.shoosman.bookapp.data.ReadingMode
 import java.io.File
 
 /** Обложка книги или цветная заглушка с названием. */
@@ -75,7 +77,11 @@ fun Cover(title: String, author: String, coverPath: String?, modifier: Modifier 
 fun MiniPlayer(onOpen: (Long) -> Unit, skipBackSec: Int, insetBottom: Boolean = true) {
     val player = App.instance.player
     val s by player.ui.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
     if (s.bookId < 0) return
+    // После перехода из аудио в текст не показываем устаревший мини-плеер:
+    // иначе карточка «последнее» внизу снова заводит в аудиокнигу.
+    if (!s.isPlaying && ReadingMode.get(ctx, s.bookId) == ReadingMode.TEXT) return
     Surface(tonalElevation = 3.dp, shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
         Column(if (insetBottom) Modifier.navigationBarsPadding() else Modifier) {
             LinearProgressIndicator(
