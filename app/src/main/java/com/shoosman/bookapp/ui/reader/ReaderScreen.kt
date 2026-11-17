@@ -220,7 +220,7 @@ private fun ReaderContent(
 
     var showUi by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<String?>(null) }
-    var selected by remember { mutableStateOf<Int?>(null) }
+    var selected by remember { mutableStateOf<ReaderTextHit?>(null) }
     var follow by rememberSaveable { mutableStateOf(true) }
 
     // Текущее место чтения — общее для обоих режимов.
@@ -296,15 +296,17 @@ private fun ReaderContent(
         Settings.System.getInt(ctx.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
     }.getOrDefault(0.5f).coerceIn(0.02f, 1f)
 
-    fun listenFrom(i: Int) {
+    fun listenFromChar(char: Int) {
         val m = mapper ?: return
-        // Выбор конкретного абзаца должен использовать синхронизацию, а не старый handoff.
+        // Используем именно выбранную строку, а не начало её абзаца.
         ListenHandoff.clear()
-        val ms = m.msAt(c.paragraphs[i].start)
-        CrashLog.note("Читалка: переход к аудио с выбранного абзаца $i (${fmtTime(ms)})")
-        repo.appScope.launch { repo.saveReadPos(bookId, c.paragraphs[i].start) }
+        val ms = m.msAt(char)
+        CrashLog.note("Читалка: переход к аудио с символа $char (${fmtTime(ms)})")
+        repo.appScope.launch { repo.saveReadPos(bookId, char) }
         onOpenPlayer(ms)
     }
+
+    fun listenFrom(i: Int) = listenFromChar(c.paragraphs[i].start)
 
     /** Кнопка «слушать»: без ручного листания возвращаемся на исходную миллисекунду. */
     fun backToAudio() {
@@ -319,25 +321,27 @@ private fun ReaderContent(
         }
     }
 
-    fun syncHere(i: Int) {
+    fun syncHere(char: Int) {
         if (!audioActive) {
             scope.launch { snackbar.showSnackbar("Сначала послушайте аудио, остановите его и вернитесь к тексту") }
             return
         }
         val ms = ps.globalMs
-        CrashLog.note("Читалка: привязка абзаца $i к ${fmtTime(ms)}")
+        CrashLog.note("Читалка: точная привязка символа $char к ${fmtTime(ms)}")
         scope.launch {
-            repo.addAnchor(bookId, ms, c.paragraphs[i].start)
+            repo.addAnchor(bookId, ms, char)
             player.refreshChapters(bookId)
-            snackbar.showSnackbar("Готово: ${fmtTime(ms)} в аудио = этот абзац")
+            snackbar.showSnackbar("Готово: ${fmtTime(ms)} в аудио = выбранная строка")
         }
     }
 
-    fun addBookmark(i: Int) {
+    fun addBookmark(i: Int, char: Int = c.paragraphs[i].start) {
         val p = c.paragraphs.getOrNull(i) ?: return
-        val ms = mapper?.msAt(p.start) ?: -1L
+        val offset = (char - p.start).coerceIn(0, p.text.length)
+        val snippet = p.text.drop(offset).trimStart().ifBlank { p.text }
+        val ms = mapper?.msAt(char) ?: -1L
         scope.launch {
-            repo.addBookmark(bookId, p.start, ms, p.text)
+            repo.addBookmark(bookId, char, ms, snippet)
             snackbar.showSnackbar("Закладка добавлена")
         }
     }
@@ -493,11 +497,14 @@ private fun ReaderContent(
     }
 
     // ---------- Действия с абзацем ----------
-    selected?.let { i ->
+    selected?.let { hit ->
+        val i = hit.paragraph
         val p = c.paragraphs[i]
+        val lineStart = (hit.charPos - p.start).coerceIn(0, p.text.length)
+        val preview = p.text.drop(lineStart).trimStart().ifBlank { p.text }
         ModalBottomSheet(onDismissRequest = { selected = null }) {
             Text(
-                p.text,
+                preview,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium,
@@ -508,19 +515,19 @@ private fun ReaderContent(
                 ListItem(
                     headlineContent = { Text("Слушать с этого места") },
                     leadingContent = { Icon(Icons.Filled.Headphones, null) },
-                    modifier = Modifier.clickable { selected = null; listenFrom(i) },
+                    modifier = Modifier.clickable { selected = null; listenFromChar(hit.charPos) },
                 )
                 ListItem(
                     headlineContent = { Text("Аудио остановилось здесь") },
-                    supportingContent = { Text("Привязать место, где вы остановили аудио, к этому абзацу — синхронизация станет точнее") },
+                    supportingContent = { Text("Привязать место остановки аудио к началу выбранной строки") },
                     leadingContent = { Icon(Icons.Filled.Link, null) },
-                    modifier = Modifier.clickable { selected = null; syncHere(i) },
+                    modifier = Modifier.clickable { selected = null; syncHere(hit.charPos) },
                 )
             }
             ListItem(
                 headlineContent = { Text("Добавить закладку") },
                 leadingContent = { Icon(Icons.Filled.BookmarkAdd, null) },
-                modifier = Modifier.clickable { selected = null; addBookmark(i) },
+                modifier = Modifier.clickable { selected = null; addBookmark(i, hit.charPos) },
             )
             ListItem(
                 headlineContent = { Text("Копировать текст") },
