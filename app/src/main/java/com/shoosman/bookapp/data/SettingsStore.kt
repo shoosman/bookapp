@@ -16,6 +16,8 @@ data class AppSettings(
     val lineHeight: Float = 1.5f,
     /** system, light, sepia, dark */
     val theme: String = "system",
+    /** Тема только текстовой читалки: follow, light, dark. */
+    val readerTheme: String = "follow",
     val serif: Boolean = true,
     val justify: Boolean = true,
     val skipBackSec: Int = 15,
@@ -53,6 +55,7 @@ class SettingsStore(private val ctx: Context) {
         val fontSize = floatPreferencesKey("fontSize")
         val lineHeight = floatPreferencesKey("lineHeight")
         val theme = stringPreferencesKey("theme")
+        val readerTheme = stringPreferencesKey("readerTheme")
         val serif = booleanPreferencesKey("serif")
         val justify = booleanPreferencesKey("justify")
         val skipBack = intPreferencesKey("skipBack")
@@ -79,6 +82,7 @@ class SettingsStore(private val ctx: Context) {
             prefs[K.fontSize] = s.fontSize
             prefs[K.lineHeight] = s.lineHeight
             prefs[K.theme] = s.theme
+            prefs[K.readerTheme] = s.readerTheme
             prefs[K.serif] = s.serif
             prefs[K.justify] = s.justify
             prefs[K.skipBack] = s.skipBackSec
@@ -104,6 +108,7 @@ class SettingsStore(private val ctx: Context) {
             fontSize = this[K.fontSize] ?: d.fontSize,
             lineHeight = this[K.lineHeight] ?: d.lineHeight,
             theme = this[K.theme] ?: d.theme,
+            readerTheme = this[K.readerTheme] ?: d.readerTheme,
             serif = this[K.serif] ?: d.serif,
             justify = this[K.justify] ?: d.justify,
             skipBackSec = this[K.skipBack] ?: d.skipBackSec,
