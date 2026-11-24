@@ -162,7 +162,10 @@ fun PagedBody(
                 anchorChar = paginator.startChar(page)
                 val atEnd = p.section == paginator.sections.lastIndex && p.page == p.pages.lastIndex
                 onCharChange(if (atEnd) c.totalChars else anchorChar)
-                hitAreas.clear()
+                // Не очищаем координаты текущей страницы: onGloballyPositioned
+                // мог уже заполнить их до запуска этого LaunchedEffect.
+                // Раньше очистка уничтожала все попадания и долгое нажатие не работало.
+                hitAreas.keys.removeAll { it.first != p.key }
                 // Заранее размечаем соседние разделы, чтобы листание было мгновенным.
                 withContext(Dispatchers.Default) {
                     if (p.page >= p.pages.size - 2 && p.section < paginator.sections.lastIndex) paginator.pages(p.section + 1)
@@ -197,16 +200,50 @@ fun PagedBody(
                             onLongPress = { o ->
                                 val p = pos ?: return@detectTapGestures
                                 val point = o + gestureOrigin
-                                val hit = hitAreas.entries.firstOrNull { (key, h) ->
-                                    key.first == p.key && h.bounds?.contains(point) == true && h.layout != null
-                                }?.value ?: return@detectTapGestures
-                                val bounds = hit.bounds ?: return@detectTapGestures
-                                val layout = hit.layout ?: return@detectTapGestures
-                                // Попадание в конкретную строку, а не в начало абзаца.
-                                val line = layout.getLineForVerticalPosition(point.y - bounds.top)
-                                val localChar = layout.getLineStart(line).coerceIn(0, hit.length)
-                                val paragraphStart = c.paragraphs[hit.paragraph].start
-                                longPress(ReaderTextHit(hit.paragraph, paragraphStart + hit.from + localChar))
+                                val currentHits = hitAreas.entries
+                                    .filter { (key, h) -> key.first == p.key && h.bounds != null }
+                                    .map { it.value }
+                                // Если палец попал в отступ между строками, выбираем
+                                // ближайший отображаемый фрагмент, а не игнорируем жест.
+                                val hit = currentHits.firstOrNull { it.bounds?.contains(point) == true }
+                                    ?: currentHits.minByOrNull { h ->
+                                        val rect = h.bounds!!
+                                        val dy = when {
+                                            point.y < rect.top -> rect.top - point.y
+                                            point.y > rect.bottom -> point.y - rect.bottom
+                                            else -> 0f
+                                        }
+                                        val dx = when {
+                                            point.x < rect.left -> rect.left - point.x
+                                            point.x > rect.right -> point.x - rect.right
+                                            else -> 0f
+                                        }
+                                        dy * 4f + dx
+                                    }
+                                if (hit == null) {
+                                    // Редкая гонка первого кадра: меню всё равно доступно.
+                                    p.pages[p.page].slices.firstOrNull()?.let { slice ->
+                                        longPress(ReaderTextHit(
+                                            slice.para,
+                                            c.paragraphs[slice.para].start + slice.from,
+                                        ))
+                                    }
+                                } else {
+                                    val bounds = hit.bounds!!
+                                    val layout = hit.layout
+                                    val localChar = if (layout != null) {
+                                        val localY = (point.y - bounds.top).coerceIn(
+                                            0f, (bounds.bottom - bounds.top).coerceAtLeast(0f),
+                                        )
+                                        layout.getLineStart(layout.getLineForVerticalPosition(localY))
+                                            .coerceIn(0, hit.length)
+                                    } else 0
+                                    val paragraphStart = c.paragraphs[hit.paragraph].start
+                                    longPress(ReaderTextHit(
+                                        hit.paragraph,
+                                        paragraphStart + hit.from + localChar,
+                                    ))
+                                }
                             },
                         )
                     }
