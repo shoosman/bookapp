@@ -126,9 +126,14 @@ private fun ScrollParagraph(
                     detectTapGestures(
                         onTap = { tap() },
                         onLongPress = { offset ->
-                            val layout = textLayout ?: return@detectTapGestures
-                            val line = layout.getLineForVerticalPosition(offset.y)
-                            val lineStart = layout.getLineStart(line).coerceIn(0, text.length)
+                            // Первое касание может случиться до onTextLayout.
+                            // В этом случае открываем меню на начале абзаца,
+                            // а не теряем долгое нажатие целиком.
+                            val layout = textLayout
+                            val lineStart = if (layout != null) {
+                                val line = layout.getLineForVerticalPosition(offset.y)
+                                layout.getLineStart(line).coerceIn(0, text.length)
+                            } else 0
                             longPress(ReaderTextHit(index, startChar + lineStart))
                         },
                     )
